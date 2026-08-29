@@ -46,15 +46,22 @@ public class FileImageMetadataExtractor : IImageMetadataExtractor
                 lon = location.Longitude;
             }
 
-            var sub = directories.OfType<ExifSubIfdDirectory>().FirstOrDefault();
-            width = sub?.GetInt32(ExifDirectoryBase.TagExifImageWidth) ?? 0;
-            height = sub?.GetInt32(ExifDirectoryBase.TagExifImageHeight) ?? 0;
+            width = exifSub?.GetInt32(ExifDirectoryBase.TagExifImageWidth) ?? 0;
+            height = exifSub?.GetInt32(ExifDirectoryBase.TagExifImageHeight) ?? 0;
 
             raw["dateTimeOriginal"] = dateStr;
             raw["latitude"] = lat?.ToString(CultureInfo.InvariantCulture);
             raw["longitude"] = lon?.ToString(CultureInfo.InvariantCulture);
         }
-        catch
+        catch (ImageProcessingException)
+        {
+            // Keep file-system metadata fallback when EXIF extraction fails.
+        }
+        catch (IOException)
+        {
+            // Keep file-system metadata fallback when EXIF extraction fails.
+        }
+        catch (UnauthorizedAccessException)
         {
             // Keep file-system metadata fallback when EXIF extraction fails.
         }

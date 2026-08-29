@@ -9,12 +9,13 @@ public class ReviewUpdateRequest
     public decimal? PricePerGallon { get; set; }
     public int? Odometer { get; set; }
     public int? VehicleId { get; set; }
-    public DateTime? EventTimeLocal { get; set; }
+    public DateTimeOffset? EventTimeLocal { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public string? Notes { get; set; }
     public string ReviewerName { get; set; } = string.Empty;
-    public bool Approve { get; set; } = true;
+    public string ReviewSystem { get; set; } = "ManualApi";
+    public bool? Approve { get; set; }
 }
 
 public class FuelEventSummaryResponse

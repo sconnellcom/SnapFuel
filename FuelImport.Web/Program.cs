@@ -70,19 +70,29 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
     fuelEvent.PricePerGallon = request.PricePerGallon ?? fuelEvent.PricePerGallon;
     fuelEvent.Odometer = request.Odometer ?? fuelEvent.Odometer;
     fuelEvent.VehicleId = request.VehicleId ?? fuelEvent.VehicleId;
-    fuelEvent.EventTimeLocal = request.EventTimeLocal ?? fuelEvent.EventTimeLocal;
-    fuelEvent.EventTimeUtc = fuelEvent.EventTimeLocal?.ToUniversalTime() ?? fuelEvent.EventTimeUtc;
+    if (request.EventTimeLocal.HasValue)
+    {
+        fuelEvent.EventTimeLocal = request.EventTimeLocal.Value.LocalDateTime;
+        fuelEvent.EventTimeUtc = request.EventTimeLocal.Value.UtcDateTime;
+    }
     fuelEvent.Latitude = request.Latitude ?? fuelEvent.Latitude;
     fuelEvent.Longitude = request.Longitude ?? fuelEvent.Longitude;
-    fuelEvent.NeedsReview = !request.Approve;
-    fuelEvent.ReviewStatus = request.Approve ? ReviewStatus.Approved : ReviewStatus.Rejected;
+    var reviewStatus = request.Approve switch
+    {
+        true => ReviewStatus.Approved,
+        false => ReviewStatus.Rejected,
+        null => ReviewStatus.Corrected
+    };
+
+    fuelEvent.ReviewStatus = reviewStatus;
+    fuelEvent.NeedsReview = reviewStatus != ReviewStatus.Approved;
     fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
 
     db.HumanReviews.Add(new HumanReview
     {
         FuelEventId = fuelEvent.FuelEventId,
-        ReviewSystem = "AmazonA2I",
-        ReviewStatus = request.Approve ? ReviewStatus.Approved : ReviewStatus.Rejected,
+        ReviewSystem = request.ReviewSystem,
+        ReviewStatus = reviewStatus,
         ReviewerName = request.ReviewerName,
         ReviewerAtUtc = DateTime.UtcNow,
         OriginalValuesJson = original,
@@ -128,16 +138,16 @@ app.MapGet("/api/events/export/csv", async (FuelImportDbContext db) =>
             row.VehicleId,
             Escape(row.EventTimeLocal?.ToString("O", CultureInfo.InvariantCulture)),
             Escape(row.EventTimeUtc?.ToString("O", CultureInfo.InvariantCulture)),
-            row.Latitude,
-            row.Longitude,
-            row.Gallons,
-            row.TotalPrice,
-            row.PricePerGallon,
+            row.Latitude?.ToString(CultureInfo.InvariantCulture),
+            row.Longitude?.ToString(CultureInfo.InvariantCulture),
+            row.Gallons?.ToString(CultureInfo.InvariantCulture),
+            row.TotalPrice?.ToString(CultureInfo.InvariantCulture),
+            row.PricePerGallon?.ToString(CultureInfo.InvariantCulture),
             row.Odometer,
-            row.MilesSincePrevious,
-            row.EstimatedMpg,
+            row.MilesSincePrevious?.ToString(CultureInfo.InvariantCulture),
+            row.EstimatedMpg?.ToString(CultureInfo.InvariantCulture),
             row.IsEstimated,
-            row.OverallConfidence));
+            row.OverallConfidence.ToString(CultureInfo.InvariantCulture)));
     }
 
     return Results.File(Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", "fuel-events.csv");

@@ -1,4 +1,5 @@
 using FuelImport.Core.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace FuelImport.Data.Persistence;
 
@@ -6,7 +7,7 @@ public static class SeedData
 {
     public static async Task EnsureSeededAsync(FuelImportDbContext dbContext, CancellationToken cancellationToken = default)
     {
-        if (dbContext.Vehicles.Any())
+        if (await dbContext.Vehicles.AnyAsync(cancellationToken))
         {
             return;
         }

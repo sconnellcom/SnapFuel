@@ -145,8 +145,8 @@ public class ImportWorker(
                 fuelEvent.Odometer = TryInt(dash.ParsedFields, "odometer");
             }
 
-            var vehicle = await resolver.ResolveAsync(fuelEvent, vehicles, stoppingToken);
-            fuelEvent.VehicleId = vehicle.VehicleId;
+            var (vehicleId, vehicleConfidence, vehicleReason) = await resolver.ResolveAsync(fuelEvent, vehicles, stoppingToken);
+            fuelEvent.VehicleId = vehicleId;
             var previous = await db.FuelEvents
                 .Where(e => e.VehicleId == fuelEvent.VehicleId)
                 .OrderByDescending(e => e.EventTimeUtc)
@@ -154,26 +154,39 @@ public class ImportWorker(
 
             var selectedVehicle = vehicles.FirstOrDefault(v => v.VehicleId == fuelEvent.VehicleId);
             var validationResult = validation.Validate(fuelEvent, selectedVehicle, previous);
-            foreach (var issue in validationResult.Issues)
-            {
-                issue.FuelEventId = fuelEvent.FuelEventId;
-            }
 
-            var classificationConfidence = ((candidate.PumpImage?.ImageTypeConfidence ?? 0m) + (candidate.DashImage?.ImageTypeConfidence ?? 0m)) / (candidate.DashImage is null || candidate.PumpImage is null ? 1 : 2);
+            var imageCount = (candidate.PumpImage is not null ? 1 : 0) + (candidate.DashImage is not null ? 1 : 0);
+            var classificationConfidence = imageCount > 0
+                ? ((candidate.PumpImage?.ImageTypeConfidence ?? 0m) + (candidate.DashImage?.ImageTypeConfidence ?? 0m)) / imageCount
+                : 0m;
 
-            fuelEvent.OverallConfidence = confidence.Calculate(pumpOcrConfidence, dashOcrConfidence, classificationConfidence, candidate.PairingConfidence, vehicle.Confidence, validationResult.Issues.Count(i => i.Severity == "error"), validationResult.Issues.Count(i => i.Severity == "warning"));
+            fuelEvent.OverallConfidence = confidence.Calculate(
+                pumpOcrConfidence,
+                dashOcrConfidence,
+                classificationConfidence,
+                candidate.PairingConfidence,
+                vehicleConfidence,
+                validationResult.Issues.Count(i => i.Severity.Equals("error", StringComparison.OrdinalIgnoreCase)),
+                validationResult.Issues.Count(i => i.Severity.Equals("warning", StringComparison.OrdinalIgnoreCase)));
 
             if (validationResult.HasErrors || fuelEvent.OverallConfidence < confidenceOptions.ReviewThreshold || fuelEvent.NeedsReview)
             {
                 fuelEvent.NeedsReview = true;
                 fuelEvent.ReviewStatus = ReviewStatus.Pending;
                 fuelEvent.ReviewReason ??= await a2i.RouteAsync(fuelEvent, validationResult.Issues, stoppingToken);
+                if (!string.IsNullOrWhiteSpace(vehicleReason))
+                {
+                    fuelEvent.ReviewReason = string.IsNullOrWhiteSpace(fuelEvent.ReviewReason)
+                        ? vehicleReason
+                        : $"{fuelEvent.ReviewReason};{vehicleReason}";
+                }
             }
             else if (fuelEvent.OverallConfidence >= confidenceOptions.AutoApproveThreshold)
             {
                 fuelEvent.ReviewStatus = ReviewStatus.Approved;
             }
 
+            await using var tx = await db.Database.BeginTransactionAsync(stoppingToken);
             db.FuelEvents.Add(fuelEvent);
             await db.SaveChangesAsync(stoppingToken);
 
@@ -182,11 +195,9 @@ public class ImportWorker(
                 issue.FuelEventId = fuelEvent.FuelEventId;
                 db.ValidationIssues.Add(issue);
             }
-        }
 
-        if (!options.DryRun)
-        {
             await db.SaveChangesAsync(stoppingToken);
+            await tx.CommitAsync(stoppingToken);
         }
 
         batch.CompletedAtUtc = DateTime.UtcNow;
