@@ -1,0 +1,6 @@
+@FuelImport.Web_HostAddress = http://localhost:5156
+
+GET {{FuelImport.Web_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
