@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using FuelImport.Aws.Options;
 using FuelImport.Aws.Services;
 using FuelImport.Core.Models;
 using FuelImport.Data.Persistence;
@@ -11,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<FuelImportDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("FuelImport") ?? "Data Source=fuelimport.db"));
+builder.Services.Configure<AwsVisionOptions>(builder.Configuration.GetSection("AwsVision"));
 builder.Services.AddScoped<A2IReviewRouter>();
 builder.Services.AddEndpointsApiExplorer();
 

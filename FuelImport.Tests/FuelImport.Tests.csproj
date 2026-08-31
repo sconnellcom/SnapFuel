@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FuelImport.Aws\FuelImport.Aws.csproj" />
     <ProjectReference Include="..\FuelImport.Core\FuelImport.Core.csproj" />
     <ProjectReference Include="..\FuelImport.Data\FuelImport.Data.csproj" />
   </ItemGroup>

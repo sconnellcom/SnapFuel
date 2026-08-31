@@ -25,6 +25,9 @@ Configure `FuelImport.Worker/appsettings.json`:
 
 - `Import:RootFolder` to your photo root path
 - `Import:DryRun` to analyze without persisting events
+- `AwsVision:EnableAwsApis` to `true` to call Textract/Rekognition/A2I
+- `AwsVision:Region` to your AWS region (for example `us-east-1`)
+- `AwsVision:A2iFlowDefinitionArn` to your flow ARN (optional for review routing)
 
 Run:
 
@@ -44,3 +47,9 @@ Endpoints:
 - `GET /api/events/{id}`
 - `POST /api/events/{id}/review`
 - `GET /api/events/export/csv`
+
+## Notes
+
+- This implementation is intentionally practical for personal use.
+- It uses AWS managed APIs (Textract, Rekognition, A2I) and fallback heuristics.
+- It does not require training custom ML models.
