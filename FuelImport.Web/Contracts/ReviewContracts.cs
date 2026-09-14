@@ -38,6 +38,8 @@ public class VehicleOptionResponse
     public int VehicleId { get; set; }
     public string Name { get; set; } = string.Empty;
     public bool NoOdometer { get; set; }
+    public decimal? MaxGallonsPerFillUp { get; set; }
+    public decimal? MaxMpg { get; set; }
 }
 
 public class VehicleManagementResponse
@@ -46,6 +48,8 @@ public class VehicleManagementResponse
     public string Name { get; set; } = string.Empty;
     public bool Active { get; set; }
     public bool NoOdometer { get; set; }
+    public decimal? MaxGallonsPerFillUp { get; set; }
+    public decimal? MaxMpg { get; set; }
 }
 
 public class VehicleUpsertRequest
@@ -53,6 +57,48 @@ public class VehicleUpsertRequest
     public string Name { get; set; } = string.Empty;
     public bool? Active { get; set; }
     public bool? NoOdometer { get; set; }
+    public decimal? MaxGallonsPerFillUp { get; set; }
+    public decimal? MaxMpg { get; set; }
+}
+
+public class EventLogResponse
+{
+    public int FuelEventId { get; set; }
+    public int? VehicleId { get; set; }
+    public string VehicleName { get; set; } = "Unassigned";
+    public DateTime? EventTimeUtc { get; set; }
+    public DateTime? EventTimeLocal { get; set; }
+    public string? LocationName { get; set; }
+    public decimal? Gallons { get; set; }
+    public decimal? TotalPrice { get; set; }
+    public decimal? PricePerGallon { get; set; }
+    public int? Odometer { get; set; }
+    public decimal? MilesSincePrevious { get; set; }
+    public decimal? CalculatedMpg { get; set; }
+    public bool NeedsReview { get; set; }
+    public ReviewStatus ReviewStatus { get; set; }
+    public List<string> AnomalyFlags { get; set; } = [];
+}
+
+public class VehicleReportResponse
+{
+    public int VehicleId { get; set; }
+    public string VehicleName { get; set; } = string.Empty;
+    public decimal? MaxGallonsPerFillUp { get; set; }
+    public decimal? MaxMpg { get; set; }
+    public int TotalEvents { get; set; }
+    public int EventsWithAnomalies { get; set; }
+    public decimal? AverageGallons { get; set; }
+    public decimal? AverageMpg { get; set; }
+    public decimal? TotalGallons { get; set; }
+    public decimal? TotalSpend { get; set; }
+}
+
+public class DataReportResponse
+{
+    public int TotalEvents { get; set; }
+    public int EventsWithAnomalies { get; set; }
+    public List<VehicleReportResponse> Vehicles { get; set; } = [];
 }
 
 public class ManualReviewImageResponse

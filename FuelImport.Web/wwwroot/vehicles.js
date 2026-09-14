@@ -7,6 +7,15 @@ const state = {
     vehicles: []
 };
 
+function numberOrNull(value) {
+    if (value == null || value === '') {
+        return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
 function renderStatus(message) {
     statusEl.textContent = message;
 }
@@ -51,6 +60,16 @@ function renderVehicles() {
                     <input type="checkbox" data-role="no-odometer" ${vehicle.noOdometer ? 'checked' : ''} />
                     No Odometer
                 </label>
+                                <div class="threshold-grid">
+                                        <label>
+                                                Max Gallons (optional)
+                                                <input type="number" min="0" step="0.01" data-role="max-gallons" value="${vehicle.maxGallonsPerFillUp ?? ''}" />
+                                        </label>
+                                        <label>
+                                                Max MPG (optional)
+                                                <input type="number" min="0" step="0.01" data-role="max-mpg" value="${vehicle.maxMpg ?? ''}" />
+                                        </label>
+                                </div>
         <div><span class="badge ${vehicle.active ? 'badge-active' : 'badge-inactive'}">${vehicle.active ? 'Active' : 'Inactive'}</span></div>
       </div>
       <button type="button" data-action="save">Save</button>
@@ -62,7 +81,11 @@ function renderVehicles() {
 async function createVehicle() {
     const name = newVehicleNameEl.value.trim();
     const noOdometerToggle = document.getElementById('newVehicleNoOdometer');
+    const maxGallonsInput = document.getElementById('newVehicleMaxGallons');
+    const maxMpgInput = document.getElementById('newVehicleMaxMpg');
     const noOdometer = noOdometerToggle instanceof HTMLInputElement ? noOdometerToggle.checked : false;
+    const maxGallonsPerFillUp = maxGallonsInput instanceof HTMLInputElement ? numberOrNull(maxGallonsInput.value) : null;
+    const maxMpg = maxMpgInput instanceof HTMLInputElement ? numberOrNull(maxMpgInput.value) : null;
     if (!name) {
         renderStatus('Enter a vehicle name first.');
         return;
@@ -74,7 +97,7 @@ async function createVehicle() {
         const response = await fetch('/api/vehicles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, noOdometer })
+            body: JSON.stringify({ name, noOdometer, maxGallonsPerFillUp, maxMpg })
         });
 
         if (!response.ok) {
@@ -86,6 +109,12 @@ async function createVehicle() {
         if (noOdometerToggle instanceof HTMLInputElement) {
             noOdometerToggle.checked = false;
         }
+        if (maxGallonsInput instanceof HTMLInputElement) {
+            maxGallonsInput.value = '';
+        }
+        if (maxMpgInput instanceof HTMLInputElement) {
+            maxMpgInput.value = '';
+        }
         await loadVehicles();
         renderStatus('Vehicle added.');
     } catch (error) {
@@ -94,14 +123,14 @@ async function createVehicle() {
     }
 }
 
-async function updateVehicle(vehicleId, name, active, noOdometer) {
+async function updateVehicle(vehicleId, name, active, noOdometer, maxGallonsPerFillUp, maxMpg) {
     renderStatus('Saving vehicle…');
 
     try {
         const response = await fetch(`/api/vehicles/${vehicleId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, active, noOdometer })
+            body: JSON.stringify({ name, active, noOdometer, maxGallonsPerFillUp, maxMpg })
         });
 
         if (!response.ok) {
@@ -140,19 +169,23 @@ vehicleManagerListEl.addEventListener('click', (event) => {
     const vehicle = state.vehicles.find((item) => item.vehicleId === vehicleId);
     const input = row.querySelector('[data-role="name"]');
     const noOdometerInput = row.querySelector('[data-role="no-odometer"]');
+    const maxGallonsInput = row.querySelector('[data-role="max-gallons"]');
+    const maxMpgInput = row.querySelector('[data-role="max-mpg"]');
     const name = input instanceof HTMLInputElement ? input.value.trim() : '';
     const noOdometer = noOdometerInput instanceof HTMLInputElement ? noOdometerInput.checked : false;
+    const maxGallonsPerFillUp = maxGallonsInput instanceof HTMLInputElement ? numberOrNull(maxGallonsInput.value) : null;
+    const maxMpg = maxMpgInput instanceof HTMLInputElement ? numberOrNull(maxMpgInput.value) : null;
     if (!vehicle) {
         return;
     }
 
     if (target.dataset.action === 'save') {
-        updateVehicle(vehicleId, name, vehicle.active, noOdometer);
+        updateVehicle(vehicleId, name, vehicle.active, noOdometer, maxGallonsPerFillUp, maxMpg);
         return;
     }
 
     if (target.dataset.action === 'toggle') {
-        updateVehicle(vehicleId, name || vehicle.name, !vehicle.active, noOdometer);
+        updateVehicle(vehicleId, name || vehicle.name, !vehicle.active, noOdometer, maxGallonsPerFillUp, maxMpg);
     }
 });
 

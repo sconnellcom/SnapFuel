@@ -100,7 +100,7 @@
 
         .add-row {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto auto;
+            grid-template-columns: minmax(0, 1fr) auto;
             gap: 12px;
             margin-bottom: 18px;
             align-items: center;
@@ -113,6 +113,27 @@
             font: inherit;
             color: var(--text);
             background: rgba(255, 253, 248, 0.95);
+        }
+
+        .threshold-grid {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .threshold-grid label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .add-threshold-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
         }
 
         .vehicle-list {
@@ -171,7 +192,9 @@
 
             .vehicle-row,
             .add-row,
-            header {
+            header,
+            .threshold-grid,
+            .add-threshold-grid {
                 grid-template-columns: 1fr;
                 display: grid;
             }
@@ -188,6 +211,8 @@
             </div>
             <div class="toolbar">
                 <a class="menu-link" href="/">Review Queue</a>
+                <a class="menu-link" href="/report.html">Report</a>
+                <a class="menu-link" href="/log.html">Log</a>
             </div>
         </header>
 
@@ -195,11 +220,24 @@
 
         <section class="panel">
             <div class="add-row">
-                <input id="newVehicleName" type="text" placeholder="Add a vehicle name" />
-                <label class="checkbox-row">
-                    <input id="newVehicleNoOdometer" type="checkbox" />
-                    No Odometer
-                </label>
+                <div>
+                    <input id="newVehicleName" type="text" placeholder="Add a vehicle name" />
+                    <label class="checkbox-row">
+                        <input id="newVehicleNoOdometer" type="checkbox" />
+                        No Odometer
+                    </label>
+                    <div class="add-threshold-grid">
+                        <label>
+                            Max Gallons (optional)
+                            <input id="newVehicleMaxGallons" type="number" min="0" step="0.01"
+                                placeholder="e.g. 21.5" />
+                        </label>
+                        <label>
+                            Max MPG (optional)
+                            <input id="newVehicleMaxMpg" type="number" min="0" step="0.01" placeholder="e.g. 50" />
+                        </label>
+                    </div>
+                </div>
                 <button id="addVehicleButton" type="button">Add vehicle</button>
             </div>
 

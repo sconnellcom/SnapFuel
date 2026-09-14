@@ -67,7 +67,9 @@ app.MapGet("/api/vehicles", async (FuelImportDbContext db) =>
         {
             VehicleId = v.VehicleId,
             Name = v.Name,
-            NoOdometer = v.NoOdometer
+            NoOdometer = v.NoOdometer,
+            MaxGallonsPerFillUp = v.MaxGallonsPerFillUp,
+            MaxMpg = v.MaxMpg
         })
         .ToListAsync());
 
@@ -81,7 +83,9 @@ app.MapGet("/api/vehicles/manage", async (FuelImportDbContext db) =>
             VehicleId = v.VehicleId,
             Name = v.Name,
             Active = v.Active,
-            NoOdometer = v.NoOdometer
+            NoOdometer = v.NoOdometer,
+            MaxGallonsPerFillUp = v.MaxGallonsPerFillUp,
+            MaxMpg = v.MaxMpg
         })
         .ToListAsync());
 
@@ -91,6 +95,11 @@ app.MapPost("/api/vehicles", async (FuelImportDbContext db, VehicleUpsertRequest
     if (name is null)
     {
         return Results.BadRequest(new { message = "Vehicle name is required." });
+    }
+
+    if (!AreThresholdsValid(request.MaxGallonsPerFillUp, request.MaxMpg, out var thresholdError))
+    {
+        return Results.BadRequest(new { message = thresholdError });
     }
 
     var normalizedName = name.ToUpperInvariant();
@@ -112,7 +121,9 @@ app.MapPost("/api/vehicles", async (FuelImportDbContext db, VehicleUpsertRequest
         NoOdometer = request.NoOdometer ?? false,
         DashboardLabel = CreateUniqueDashboardLabel(name, labels),
         ExpectedTankGallonsMin = 0m,
-        ExpectedTankGallonsMax = 100m
+        ExpectedTankGallonsMax = 100m,
+        MaxGallonsPerFillUp = request.MaxGallonsPerFillUp,
+        MaxMpg = request.MaxMpg
     };
 
     db.Vehicles.Add(vehicle);
@@ -123,7 +134,9 @@ app.MapPost("/api/vehicles", async (FuelImportDbContext db, VehicleUpsertRequest
         VehicleId = vehicle.VehicleId,
         Name = vehicle.Name,
         Active = vehicle.Active,
-        NoOdometer = vehicle.NoOdometer
+        NoOdometer = vehicle.NoOdometer,
+        MaxGallonsPerFillUp = vehicle.MaxGallonsPerFillUp,
+        MaxMpg = vehicle.MaxMpg
     });
 });
 
@@ -139,6 +152,11 @@ app.MapPut("/api/vehicles/{id:int}", async (FuelImportDbContext db, int id, Vehi
     if (name is null)
     {
         return Results.BadRequest(new { message = "Vehicle name is required." });
+    }
+
+    if (!AreThresholdsValid(request.MaxGallonsPerFillUp, request.MaxMpg, out var thresholdError))
+    {
+        return Results.BadRequest(new { message = thresholdError });
     }
 
     var duplicateExists = await db.Vehicles
@@ -160,6 +178,9 @@ app.MapPut("/api/vehicles/{id:int}", async (FuelImportDbContext db, int id, Vehi
         vehicle.NoOdometer = request.NoOdometer.Value;
     }
 
+    vehicle.MaxGallonsPerFillUp = request.MaxGallonsPerFillUp;
+    vehicle.MaxMpg = request.MaxMpg;
+
     await db.SaveChangesAsync();
 
     return Results.Ok(new VehicleManagementResponse
@@ -167,7 +188,9 @@ app.MapPut("/api/vehicles/{id:int}", async (FuelImportDbContext db, int id, Vehi
         VehicleId = vehicle.VehicleId,
         Name = vehicle.Name,
         Active = vehicle.Active,
-        NoOdometer = vehicle.NoOdometer
+        NoOdometer = vehicle.NoOdometer,
+        MaxGallonsPerFillUp = vehicle.MaxGallonsPerFillUp,
+        MaxMpg = vehicle.MaxMpg
     });
 });
 
@@ -332,6 +355,7 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
 
     int? targetFuelEventId = request.FuelEventId ?? (existingLinkEventIds.Count == 1 ? existingLinkEventIds[0] : null);
     FuelEvent? fuelEvent = null;
+    var previousVehicleId = default(int?);
     if (targetFuelEventId.HasValue)
     {
         fuelEvent = await db.FuelEvents.FirstOrDefaultAsync(e => e.FuelEventId == targetFuelEventId.Value);
@@ -339,6 +363,8 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
         {
             return Results.NotFound();
         }
+
+        previousVehicleId = fuelEvent.VehicleId;
     }
 
     var original = fuelEvent is null ? null : JsonSerializer.Serialize(fuelEvent);
@@ -378,6 +404,12 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     {
         db.FuelEvents.Add(fuelEvent);
         await db.SaveChangesAsync();
+    }
+
+    await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
+    if (previousVehicleId.HasValue && previousVehicleId != fuelEvent.VehicleId)
+    {
+        await RecomputeVehicleDerivedMetricsAsync(db, previousVehicleId);
     }
 
     var existingLinks = await db.FuelEventSourceImages
@@ -441,6 +473,7 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
     }
 
     var original = JsonSerializer.Serialize(fuelEvent);
+    var previousVehicleId = fuelEvent.VehicleId;
 
     fuelEvent.Gallons = request.Gallons ?? fuelEvent.Gallons;
     fuelEvent.TotalPrice = request.TotalPrice ?? fuelEvent.TotalPrice;
@@ -469,6 +502,12 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
     fuelEvent.NeedsReview = reviewStatus != ReviewStatus.Approved;
     fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
 
+    await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
+    if (previousVehicleId.HasValue && previousVehicleId != fuelEvent.VehicleId)
+    {
+        await RecomputeVehicleDerivedMetricsAsync(db, previousVehicleId);
+    }
+
     db.HumanReviews.Add(new HumanReview
     {
         FuelEventId = fuelEvent.FuelEventId,
@@ -483,6 +522,114 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
 
     await db.SaveChangesAsync();
     return Results.Ok(fuelEvent);
+});
+
+app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
+{
+    var vehicleMap = await db.Vehicles
+        .AsNoTracking()
+        .ToDictionaryAsync(vehicle => vehicle.VehicleId);
+
+    var events = await db.FuelEvents
+        .AsNoTracking()
+        .OrderBy(e => e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc)
+        .ThenBy(e => e.FuelEventId)
+        .ToListAsync();
+
+    var eventMetrics = BuildEventMetrics(events, vehicleMap);
+
+    var response = events
+        .OrderByDescending(e => e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc)
+        .ThenByDescending(e => e.FuelEventId)
+        .Select(fuelEvent =>
+        {
+            vehicleMap.TryGetValue(fuelEvent.VehicleId ?? 0, out var vehicle);
+            var metrics = eventMetrics.TryGetValue(fuelEvent.FuelEventId, out var candidate)
+                ? candidate
+                : EmptyEventMetric();
+
+            return new EventLogResponse
+            {
+                FuelEventId = fuelEvent.FuelEventId,
+                VehicleId = fuelEvent.VehicleId,
+                VehicleName = vehicle?.Name ?? "Unassigned",
+                EventTimeUtc = fuelEvent.EventTimeUtc,
+                EventTimeLocal = fuelEvent.EventTimeLocal,
+                LocationName = fuelEvent.LocationName,
+                Gallons = fuelEvent.Gallons,
+                TotalPrice = fuelEvent.TotalPrice,
+                PricePerGallon = fuelEvent.PricePerGallon,
+                Odometer = fuelEvent.Odometer,
+                MilesSincePrevious = metrics.MilesSincePrevious,
+                CalculatedMpg = metrics.CalculatedMpg,
+                NeedsReview = fuelEvent.NeedsReview,
+                ReviewStatus = fuelEvent.ReviewStatus,
+                AnomalyFlags = metrics.AnomalyFlags
+            };
+        })
+        .ToList();
+
+    return Results.Ok(response);
+});
+
+app.MapGet("/api/events/report", async (FuelImportDbContext db) =>
+{
+    var vehicles = await db.Vehicles.AsNoTracking().OrderBy(v => v.Name).ToListAsync();
+    var events = await db.FuelEvents
+        .AsNoTracking()
+        .OrderBy(e => e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc)
+        .ThenBy(e => e.FuelEventId)
+        .ToListAsync();
+
+    var vehicleById = vehicles.ToDictionary(vehicle => vehicle.VehicleId);
+    var eventMetrics = BuildEventMetrics(events, vehicleById);
+    var eventsByVehicle = events
+        .Where(fuelEvent => fuelEvent.VehicleId.HasValue)
+        .GroupBy(fuelEvent => fuelEvent.VehicleId!.Value)
+        .ToDictionary(group => group.Key, group => group.ToList());
+
+    var vehicleRows = vehicles
+        .Select(vehicle =>
+        {
+            eventsByVehicle.TryGetValue(vehicle.VehicleId, out var vehicleEvents);
+            vehicleEvents ??= [];
+
+            var metrics = vehicleEvents
+                .Select(fuelEvent => eventMetrics.TryGetValue(fuelEvent.FuelEventId, out var metric)
+                    ? metric
+                    : EmptyEventMetric())
+                .ToList();
+
+            var gallons = vehicleEvents.Where(e => e.Gallons.HasValue).Select(e => e.Gallons!.Value).ToList();
+            var mpgValues = metrics.Where(metric => metric.CalculatedMpg.HasValue).Select(metric => metric.CalculatedMpg!.Value).ToList();
+            var spend = vehicleEvents.Where(e => e.TotalPrice.HasValue).Select(e => e.TotalPrice!.Value).ToList();
+            var anomalyCount = metrics.Count(metric => metric.AnomalyFlags.Count > 0);
+
+            return new VehicleReportResponse
+            {
+                VehicleId = vehicle.VehicleId,
+                VehicleName = vehicle.Name,
+                MaxGallonsPerFillUp = vehicle.MaxGallonsPerFillUp,
+                MaxMpg = vehicle.MaxMpg,
+                TotalEvents = vehicleEvents.Count,
+                EventsWithAnomalies = anomalyCount,
+                AverageGallons = gallons.Count > 0 ? Math.Round(gallons.Average(), 2, MidpointRounding.AwayFromZero) : null,
+                AverageMpg = mpgValues.Count > 0 ? Math.Round(mpgValues.Average(), 2, MidpointRounding.AwayFromZero) : null,
+                TotalGallons = gallons.Count > 0 ? Math.Round(gallons.Sum(), 2, MidpointRounding.AwayFromZero) : null,
+                TotalSpend = spend.Count > 0 ? Math.Round(spend.Sum(), 2, MidpointRounding.AwayFromZero) : null
+            };
+        })
+        .ToList();
+
+    var allAnomalyCount = events.Count(fuelEvent =>
+        eventMetrics.TryGetValue(fuelEvent.FuelEventId, out var metrics) && metrics.AnomalyFlags.Count > 0);
+
+    return Results.Ok(new DataReportResponse
+    {
+        TotalEvents = events.Count,
+        EventsWithAnomalies = allAnomalyCount,
+        Vehicles = vehicleRows
+    });
 });
 
 app.MapGet("/api/events/export/csv", async (FuelImportDbContext db) =>
@@ -615,6 +762,123 @@ static DateTime? FirstTimestamp(IEnumerable<DateTime?> values)
         .OrderBy(value => value)
         .Cast<DateTime?>()
         .FirstOrDefault();
+}
+
+static async Task RecomputeVehicleDerivedMetricsAsync(FuelImportDbContext db, int? vehicleId)
+{
+    if (!vehicleId.HasValue)
+    {
+        return;
+    }
+
+    var vehicleEvents = await db.FuelEvents
+        .Where(fuelEvent => fuelEvent.VehicleId == vehicleId)
+        .OrderBy(fuelEvent => fuelEvent.EventTimeUtc ?? fuelEvent.EventTimeLocal ?? fuelEvent.CreatedAtUtc)
+        .ThenBy(fuelEvent => fuelEvent.FuelEventId)
+        .ToListAsync();
+
+    FuelEvent? previous = null;
+    foreach (var current in vehicleEvents)
+    {
+        current.MilesSincePrevious = null;
+        current.EstimatedMpg = null;
+        current.IsEstimated = false;
+
+        if (previous?.Odometer is int previousOdometer && current.Odometer is int currentOdometer)
+        {
+            var miles = currentOdometer - previousOdometer;
+            if (miles >= 0)
+            {
+                current.MilesSincePrevious = miles;
+                if (current.Gallons is decimal gallons && gallons > 0)
+                {
+                    current.EstimatedMpg = Math.Round(miles / gallons, 3, MidpointRounding.AwayFromZero);
+                }
+            }
+        }
+
+        previous = current;
+    }
+}
+
+static Dictionary<int, (decimal? MilesSincePrevious, decimal? CalculatedMpg, List<string> AnomalyFlags)> BuildEventMetrics(
+    IReadOnlyList<FuelEvent> orderedEvents,
+    IReadOnlyDictionary<int, Vehicle> vehiclesById)
+{
+    var result = new Dictionary<int, (decimal? MilesSincePrevious, decimal? CalculatedMpg, List<string> AnomalyFlags)>();
+    var previousEventByVehicle = new Dictionary<int, FuelEvent>();
+
+    foreach (var fuelEvent in orderedEvents)
+    {
+        decimal? milesSincePrevious = null;
+        decimal? calculatedMpg = null;
+        var anomalyFlags = new List<string>();
+
+        FuelEvent? previousEvent = null;
+        if (fuelEvent.VehicleId is int vehicleId)
+        {
+            previousEventByVehicle.TryGetValue(vehicleId, out previousEvent);
+        }
+
+        if (previousEvent?.Odometer is int previousOdometer && fuelEvent.Odometer is int currentOdometer)
+        {
+            var miles = currentOdometer - previousOdometer;
+            if (miles >= 0)
+            {
+                milesSincePrevious = miles;
+            }
+        }
+
+        if (milesSincePrevious.HasValue && fuelEvent.Gallons is decimal gallons && gallons > 0)
+        {
+            calculatedMpg = Math.Round(milesSincePrevious.Value / gallons, 3, MidpointRounding.AwayFromZero);
+        }
+
+        if (fuelEvent.VehicleId is int currentVehicleId && vehiclesById.TryGetValue(currentVehicleId, out var vehicleWithThresholds))
+        {
+            if (vehicleWithThresholds.MaxGallonsPerFillUp is decimal maxGallons && fuelEvent.Gallons is decimal eventGallons && eventGallons > maxGallons)
+            {
+                anomalyFlags.Add($"Gallons {eventGallons:0.###} exceeds vehicle max {maxGallons:0.###}.");
+            }
+
+            if (vehicleWithThresholds.MaxMpg is decimal maxMpg && calculatedMpg is decimal eventMpg && eventMpg > maxMpg)
+            {
+                anomalyFlags.Add($"MPG {eventMpg:0.###} exceeds vehicle max {maxMpg:0.###}.");
+            }
+        }
+
+        result[fuelEvent.FuelEventId] = (milesSincePrevious, calculatedMpg, anomalyFlags);
+
+        if (fuelEvent.VehicleId is int id)
+        {
+            previousEventByVehicle[id] = fuelEvent;
+        }
+    }
+
+    return result;
+}
+
+static (decimal? MilesSincePrevious, decimal? CalculatedMpg, List<string> AnomalyFlags) EmptyEventMetric()
+{
+    return (null, null, new List<string>());
+}
+
+static bool AreThresholdsValid(decimal? maxGallonsPerFillUp, decimal? maxMpg, out string? error)
+{
+    if (maxGallonsPerFillUp.HasValue && maxGallonsPerFillUp.Value <= 0)
+    {
+        error = "Max gallons must be greater than zero when provided.";
+        return false;
+    }
+
+    if (maxMpg.HasValue && maxMpg.Value <= 0)
+    {
+        error = "Max MPG must be greater than zero when provided.";
+        return false;
+    }
+
+    error = null;
+    return true;
 }
 
 static string Escape(string? value)

@@ -51,7 +51,11 @@ Endpoints:
 - `POST /api/manual/groups/save`
 - `GET /api/images/{id}`
 - `GET /api/vehicles`
+- `GET /api/events/report`
+- `GET /api/events/log`
 - `GET /vehicles.html`
+- `GET /report.html`
+- `GET /log.html`
 - `GET /api/events/export/csv`
 
 If the worker ran with `Import:DryRun=false`, open the web UI to work through grouped image sets. Each group is built from nearby timestamps and matching GPS coordinates from EXIF when available. Saving a group creates or updates one fuel event linked to every image in that group.

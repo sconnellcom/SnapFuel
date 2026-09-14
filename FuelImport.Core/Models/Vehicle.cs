@@ -9,6 +9,8 @@ public class Vehicle
     public string DashboardLabel { get; set; } = string.Empty;
     public decimal ExpectedTankGallonsMin { get; set; }
     public decimal ExpectedTankGallonsMax { get; set; }
+    public decimal? MaxGallonsPerFillUp { get; set; }
+    public decimal? MaxMpg { get; set; }
     public int? OdometerMinKnown { get; set; }
     public int? OdometerMaxKnown { get; set; }
     public bool Active { get; set; } = true;

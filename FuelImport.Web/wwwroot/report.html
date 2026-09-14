@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnapFuel Report</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f1efe8;
+            --bg-alt: #e5d5b9;
+            --panel: rgba(255, 252, 246, 0.94);
+            --border: #d7c3a7;
+            --text: #2e241d;
+            --muted: #67574a;
+            --primary: #9d3b2e;
+            --accent: #1d5d62;
+            --warn: #a53f2a;
+            --warn-soft: #f9e1d9;
+            --shadow: 0 20px 56px rgba(64, 41, 23, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 8% 6%, rgba(255, 255, 255, 0.68), transparent 22%),
+                linear-gradient(140deg, var(--bg), #ebdfcb 54%, var(--bg-alt));
+            color: var(--text);
+            font-family: Aptos, "Trebuchet MS", sans-serif;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 28px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            letter-spacing: -0.05em;
+        }
+
+        .subtitle,
+        .status {
+            color: var(--muted);
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .menu-link,
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            padding: 10px 16px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.92rem;
+        }
+
+        .menu-link {
+            background: rgba(255, 252, 246, 0.74);
+            color: var(--text);
+        }
+
+        button {
+            background: var(--primary);
+            color: #fff9f4;
+            cursor: pointer;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin: 14px 0 18px;
+        }
+
+        .trend-toolbar {
+            margin: 0 0 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .trend-toolbar label {
+            color: var(--muted);
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .trend-toolbar select {
+            min-height: 40px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            padding: 8px 14px;
+            font: inherit;
+            color: var(--text);
+            background: rgba(255, 252, 246, 0.92);
+        }
+
+        .card,
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+        }
+
+        .card {
+            padding: 16px;
+        }
+
+        .card-label {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .card-value {
+            font-size: clamp(1.2rem, 2.5vw, 2rem);
+            font-weight: 800;
+        }
+
+        .panel {
+            padding: 16px;
+            overflow: auto;
+        }
+
+        .charts-panel {
+            margin-bottom: 18px;
+            overflow: hidden;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .chart-card {
+            border: 1px solid rgba(103, 87, 74, 0.18);
+            border-radius: 16px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.55);
+        }
+
+        .chart-title {
+            margin: 0 0 8px;
+            font-size: 0.95rem;
+        }
+
+        .chart-meta {
+            color: var(--muted);
+            font-size: 0.82rem;
+            margin-bottom: 6px;
+        }
+
+        .chart-empty {
+            color: var(--muted);
+            font-size: 0.88rem;
+            padding: 18px 0;
+        }
+
+        .chart-svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .chart-axis {
+            stroke: rgba(103, 87, 74, 0.25);
+            stroke-width: 1;
+        }
+
+        .chart-grid-line {
+            stroke: rgba(103, 87, 74, 0.15);
+            stroke-width: 1;
+            stroke-dasharray: 3 4;
+        }
+
+        .chart-line {
+            fill: none;
+            stroke-width: 2.5;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+        }
+
+        .chart-point {
+            stroke: white;
+            stroke-width: 1.4;
+        }
+
+        .chart-label {
+            fill: var(--muted);
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 860px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid rgba(103, 87, 74, 0.18);
+            font-size: 0.92rem;
+        }
+
+        th {
+            font-size: 0.78rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .warn {
+            color: var(--warn);
+            font-weight: 800;
+            background: var(--warn-soft);
+            border: 1px solid rgba(165, 63, 42, 0.25);
+            border-radius: 999px;
+            padding: 3px 8px;
+            display: inline-block;
+            font-size: 0.74rem;
+        }
+
+        @media (max-width: 920px) {
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 18px;
+            }
+
+            header {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Data Report</h1>
+                <div class="subtitle">Vehicle-level rollup with anomaly totals from your saved fuel events.</div>
+            </div>
+            <div class="toolbar">
+                <a class="menu-link" href="/">Review Queue</a>
+                <a class="menu-link" href="/vehicles.html">Vehicles</a>
+                <a class="menu-link" href="/log.html">Log</a>
+                <button id="refreshButton" type="button">Refresh</button>
+            </div>
+        </header>
+
+        <div id="status" class="status">Loading report…</div>
+
+        <section class="cards">
+            <article class="card">
+                <div class="card-label">Total Events</div>
+                <div id="totalEvents" class="card-value">-</div>
+            </article>
+            <article class="card">
+                <div class="card-label">Events With Callouts</div>
+                <div id="eventsWithAnomalies" class="card-value">-</div>
+            </article>
+            <article class="card">
+                <div class="card-label">Data Health</div>
+                <div id="healthRatio" class="card-value">-</div>
+            </article>
+        </section>
+
+        <section class="panel charts-panel">
+            <div class="trend-toolbar">
+                <label for="vehicleTrendSelect">Trend Vehicle</label>
+                <select id="vehicleTrendSelect"></select>
+            </div>
+            <div id="trendCharts" class="charts-grid"></div>
+        </section>
+
+        <section class="panel">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Vehicle</th>
+                        <th>Thresholds</th>
+                        <th>Events</th>
+                        <th>Callouts</th>
+                        <th>Avg Gallons</th>
+                        <th>Avg MPG</th>
+                        <th>Total Gallons</th>
+                        <th>Total Spend</th>
+                    </tr>
+                </thead>
+                <tbody id="vehicleReportBody"></tbody>
+            </table>
+        </section>
+    </div>
+
+    <script src="/report.js"></script>
+</body>
+
+</html>

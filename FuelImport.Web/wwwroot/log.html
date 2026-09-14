@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnapFuel Event Log</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f5efe4;
+            --bg-alt: #dac8a9;
+            --panel: rgba(255, 252, 246, 0.94);
+            --border: #d7c3a7;
+            --text: #2e241d;
+            --muted: #67574a;
+            --primary: #9d3b2e;
+            --warn: #a53f2a;
+            --warn-soft: #f9e1d9;
+            --shadow: 0 20px 56px rgba(64, 41, 23, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 92% 10%, rgba(255, 255, 255, 0.65), transparent 24%),
+                linear-gradient(140deg, var(--bg), #ecdfca 54%, var(--bg-alt));
+            color: var(--text);
+            font-family: Aptos, "Trebuchet MS", sans-serif;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 28px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            letter-spacing: -0.05em;
+        }
+
+        .subtitle,
+        .status {
+            color: var(--muted);
+        }
+
+        .toolbar,
+        .filters {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .menu-link,
+        button,
+        select {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            padding: 10px 16px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: var(--text);
+            background: rgba(255, 252, 246, 0.78);
+        }
+
+        button {
+            background: var(--primary);
+            color: #fff9f4;
+            cursor: pointer;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            padding: 16px;
+            overflow: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1180px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid rgba(103, 87, 74, 0.18);
+            font-size: 0.9rem;
+            vertical-align: top;
+        }
+
+        th {
+            font-size: 0.78rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .pill {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 0.74rem;
+            border: 1px solid rgba(103, 87, 74, 0.25);
+        }
+
+        .pill-review {
+            background: #f1e6d5;
+        }
+
+        .warn {
+            color: var(--warn);
+            font-weight: 700;
+            background: var(--warn-soft);
+            border: 1px solid rgba(165, 63, 42, 0.24);
+            border-radius: 10px;
+            padding: 5px 8px;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .empty {
+            color: var(--muted);
+            padding: 14px 0;
+        }
+
+        @media (max-width: 920px) {
+            .container {
+                padding: 18px;
+            }
+
+            header {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Event Log</h1>
+                <div class="subtitle">Chronological event list with gallons and MPG callouts against each vehicle
+                    threshold.</div>
+            </div>
+            <div class="toolbar">
+                <a class="menu-link" href="/">Review Queue</a>
+                <a class="menu-link" href="/vehicles.html">Vehicles</a>
+                <a class="menu-link" href="/report.html">Report</a>
+                <button id="refreshButton" type="button">Refresh</button>
+            </div>
+        </header>
+
+        <div class="filters">
+            <select id="anomalyFilter">
+                <option value="all">All Events</option>
+                <option value="onlyAnomalies">Only Callouts</option>
+            </select>
+        </div>
+
+        <div id="status" class="status">Loading event log…</div>
+
+        <section class="panel">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Vehicle</th>
+                        <th>Gallons</th>
+                        <th>Odometer</th>
+                        <th>Miles Since Prior</th>
+                        <th>MPG</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                        <th>Callouts</th>
+                    </tr>
+                </thead>
+                <tbody id="logBody"></tbody>
+            </table>
+        </section>
+    </div>
+
+    <script src="/log.js"></script>
+</body>
+
+</html>
