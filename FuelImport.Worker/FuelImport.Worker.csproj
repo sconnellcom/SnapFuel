@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MetadataExtractor" Version="2.8.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FuelImport.Aws\FuelImport.Aws.csproj" />
+    <ProjectReference Include="..\FuelImport.Core\FuelImport.Core.csproj" />
+    <ProjectReference Include="..\FuelImport.Data\FuelImport.Data.csproj" />
+  </ItemGroup>
+
+</Project>
