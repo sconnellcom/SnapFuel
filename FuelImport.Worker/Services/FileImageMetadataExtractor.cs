@@ -10,6 +10,14 @@ namespace FuelImport.Worker.Services;
 
 public class FileImageMetadataExtractor : IImageMetadataExtractor
 {
+    private static readonly string[] ExifDateFormats =
+    [
+        "yyyy:MM:dd HH:mm:ss",
+        "yyyy:MM:dd HH:mm:ss.FFF",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss.FFF"
+    ];
+
     public async Task<MetadataSnapshot> ExtractAsync(string path, CancellationToken cancellationToken = default)
     {
         var fileInfo = new FileInfo(path);
@@ -30,10 +38,14 @@ public class FileImageMetadataExtractor : IImageMetadataExtractor
         {
             var directories = ImageMetadataReader.ReadMetadata(path);
             var exifSub = directories.OfType<ExifSubIfdDirectory>().FirstOrDefault();
+            var exifIfd0 = directories.OfType<ExifIfd0Directory>().FirstOrDefault();
             var gps = directories.OfType<GpsDirectory>().FirstOrDefault();
 
-            var dateStr = exifSub?.GetDescription(ExifDirectoryBase.TagDateTimeOriginal);
-            if (DateTime.TryParse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dtLocal))
+            var dateStr = exifSub?.GetString(ExifDirectoryBase.TagDateTimeOriginal)
+                ?? exifSub?.GetString(ExifDirectoryBase.TagDateTimeDigitized)
+                ?? exifIfd0?.GetString(ExifDirectoryBase.TagDateTime);
+
+            if (TryParseExifTimestamp(dateStr, out var dtLocal))
             {
                 localCapture = dtLocal;
                 utcCapture = dtLocal.ToUniversalTime();
@@ -81,5 +93,20 @@ public class FileImageMetadataExtractor : IImageMetadataExtractor
             FileModifiedUtc = fileInfo.LastWriteTimeUtc,
             RawMetadataJson = JsonSerializer.Serialize(raw)
         };
+    }
+
+    internal static bool TryParseExifTimestamp(string? rawValue, out DateTime localCapture)
+    {
+        if (DateTime.TryParseExact(
+                rawValue,
+                ExifDateFormats,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal,
+                out localCapture))
+        {
+            return true;
+        }
+
+        return DateTime.TryParse(rawValue, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out localCapture);
     }
 }

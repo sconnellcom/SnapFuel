@@ -4,7 +4,9 @@ public enum ImageType
 {
     Unknown = 0,
     Pump = 1,
-    Dashboard = 2
+    Dashboard = 2,
+    FuelReceipt = 3,
+    OtherReceipt = 4
 }
 
 public enum ProcessingStatus

@@ -4,6 +4,7 @@ public class Vehicle
 {
     public int VehicleId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public bool NoOdometer { get; set; }
     public string? Description { get; set; }
     public string DashboardLabel { get; set; } = string.Empty;
     public decimal ExpectedTankGallonsMin { get; set; }

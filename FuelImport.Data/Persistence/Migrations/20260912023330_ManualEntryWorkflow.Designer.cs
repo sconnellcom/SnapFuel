@@ -3,6 +3,7 @@ using System;
 using FuelImport.Data.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FuelImport.Data.Persistence.Migrations
 {
     [DbContext(typeof(FuelImportDbContext))]
-    partial class FuelImportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260912023330_ManualEntryWorkflow")]
+    partial class ManualEntryWorkflow
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -29,6 +32,10 @@ namespace FuelImport.Data.Persistence.Migrations
                     b.Property<int?>("DashSourceImageId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("DashboardNotes")
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
                     b.Property<decimal?>("EstimatedMpg")
                         .HasColumnType("TEXT");
 
@@ -36,6 +43,10 @@ namespace FuelImport.Data.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("EventTimeUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FuelNotes")
+                        .HasMaxLength(2048)
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("Gallons")
@@ -59,10 +70,6 @@ namespace FuelImport.Data.Persistence.Migrations
 
                     b.Property<bool>("NeedsReview")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2048)
-                        .HasColumnType("TEXT");
 
                     b.Property<int?>("Odometer")
                         .HasColumnType("INTEGER");
@@ -268,10 +275,6 @@ namespace FuelImport.Data.Persistence.Migrations
                     b.Property<double?>("Longitude")
                         .HasColumnType("REAL");
 
-                    b.Property<string>("ManualGroupKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("ProcessingStatus")
                         .HasColumnType("INTEGER");
 
@@ -354,9 +357,6 @@ namespace FuelImport.Data.Persistence.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("NoOdometer")
-                        .HasColumnType("INTEGER");
 
                     b.Property<int?>("OdometerMaxKnown")
                         .HasColumnType("INTEGER");

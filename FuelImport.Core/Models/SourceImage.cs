@@ -6,6 +6,7 @@ public class SourceImage
     public string FilePath { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public string FileHash { get; set; } = string.Empty;
+    public string? ManualGroupKey { get; set; }
     public DateTime? CapturedAtUtc { get; set; }
     public DateTime? CapturedAtLocal { get; set; }
     public double? Latitude { get; set; }

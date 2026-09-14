@@ -3,6 +3,7 @@ using System;
 using FuelImport.Data.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FuelImport.Data.Persistence.Migrations
 {
     [DbContext(typeof(FuelImportDbContext))]
-    partial class FuelImportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260912031922_ManualGroupKey")]
+    partial class ManualGroupKey
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -354,9 +357,6 @@ namespace FuelImport.Data.Persistence.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("NoOdometer")
-                        .HasColumnType("INTEGER");
 
                     b.Property<int?>("OdometerMaxKnown")
                         .HasColumnType("INTEGER");

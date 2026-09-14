@@ -10,10 +10,12 @@ public class FuelEvent
     public DateTime? EventTimeLocal { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+    public string? LocationName { get; set; }
     public decimal? Gallons { get; set; }
     public decimal? TotalPrice { get; set; }
     public decimal? PricePerGallon { get; set; }
     public int? Odometer { get; set; }
+    public string? Notes { get; set; }
     public decimal? MilesSincePrevious { get; set; }
     public decimal? EstimatedMpg { get; set; }
     public bool IsEstimated { get; set; }
