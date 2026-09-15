@@ -6,7 +6,7 @@ using FuelImport.Core.Models;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
 
-namespace FuelImport.Worker.Services;
+namespace FuelImport.Core.Services;
 
 public class FileImageMetadataExtractor : IImageMetadataExtractor
 {
@@ -58,8 +58,12 @@ public class FileImageMetadataExtractor : IImageMetadataExtractor
                 lon = location.Longitude;
             }
 
-            width = exifSub?.GetInt32(ExifDirectoryBase.TagExifImageWidth) ?? 0;
-            height = exifSub?.GetInt32(ExifDirectoryBase.TagExifImageHeight) ?? 0;
+            width = TryGetInt32(exifSub, ExifDirectoryBase.TagExifImageWidth)
+                ?? TryGetInt32(exifSub, ExifDirectoryBase.TagImageWidth)
+                ?? 0;
+            height = TryGetInt32(exifSub, ExifDirectoryBase.TagExifImageHeight)
+                ?? TryGetInt32(exifSub, ExifDirectoryBase.TagImageHeight)
+                ?? 0;
 
             raw["dateTimeOriginal"] = dateStr;
             raw["latitude"] = lat?.ToString(CultureInfo.InvariantCulture);
@@ -95,7 +99,7 @@ public class FileImageMetadataExtractor : IImageMetadataExtractor
         };
     }
 
-    internal static bool TryParseExifTimestamp(string? rawValue, out DateTime localCapture)
+    public static bool TryParseExifTimestamp(string? rawValue, out DateTime localCapture)
     {
         if (DateTime.TryParseExact(
                 rawValue,
@@ -109,4 +113,19 @@ public class FileImageMetadataExtractor : IImageMetadataExtractor
 
         return DateTime.TryParse(rawValue, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out localCapture);
     }
-}
+    private static int? TryGetInt32(ExifSubIfdDirectory? directory, int tagId)
+    {
+        if (directory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return directory.TryGetInt32(tagId, out var value) ? value : null;
+        }
+        catch (MetadataException)
+        {
+            return null;
+        }
+    }}

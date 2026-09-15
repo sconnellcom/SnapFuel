@@ -1,4 +1,4 @@
-using FuelImport.Worker.Services;
+using FuelImport.Core.Services;
 
 namespace FuelImport.Tests;
 
@@ -21,5 +21,29 @@ public class FileImageMetadataExtractorTests
 
         Assert.True(parsed);
         Assert.Equal(new DateTime(year, month, day, hour, minute, second, millisecond), timestamp);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_HandlesMissingExifDimensionsGracefully()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"snapfuel-missing-exif-{Guid.NewGuid():N}.jpg");
+        await File.WriteAllBytesAsync(path, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10 });
+
+        try
+        {
+            var result = await new FileImageMetadataExtractor().ExtractAsync(path);
+
+            Assert.Equal(Path.GetFileName(path), result.FileName);
+            Assert.False(string.IsNullOrWhiteSpace(result.FileHash));
+            Assert.Equal(0, result.Width);
+            Assert.Equal(0, result.Height);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 }

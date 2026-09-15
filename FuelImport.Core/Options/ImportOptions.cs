@@ -1,4 +1,4 @@
-namespace FuelImport.Worker.Options;
+namespace FuelImport.Core.Options;
 
 public class ImportOptions
 {

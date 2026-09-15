@@ -4,5 +4,4 @@
   <Project Path="FuelImport.Data/FuelImport.Data.csproj" />
   <Project Path="FuelImport.Tests/FuelImport.Tests.csproj" />
   <Project Path="FuelImport.Web/FuelImport.Web.csproj" />
-  <Project Path="FuelImport.Worker/FuelImport.Worker.csproj" />
 </Solution>

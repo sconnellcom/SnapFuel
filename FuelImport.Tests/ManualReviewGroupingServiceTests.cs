@@ -76,7 +76,7 @@ public class ManualReviewGroupingServiceTests
         var groups = service.Group(images).ToList();
 
         Assert.Equal(2, groups.Count);
-        var splitGroup = Assert.Single(groups.Where(group => group.GroupKey == "split-x"));
+        var splitGroup = Assert.Single(groups, group => group.GroupKey == "split-x");
         Assert.Equal(2, splitGroup.Images.Count);
         Assert.Contains(splitGroup.Images, image => image.SourceImageId == 10);
         Assert.Contains(splitGroup.Images, image => image.SourceImageId == 12);

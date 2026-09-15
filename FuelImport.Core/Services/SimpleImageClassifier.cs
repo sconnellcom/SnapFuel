@@ -2,7 +2,7 @@ using System.Text.Json;
 using FuelImport.Core.Interfaces;
 using FuelImport.Core.Models;
 
-namespace FuelImport.Worker.Services;
+namespace FuelImport.Core.Services;
 
 public class SimpleImageClassifier : IImageClassifier
 {

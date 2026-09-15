@@ -101,6 +101,13 @@ public class DataReportResponse
     public List<VehicleReportResponse> Vehicles { get; set; } = [];
 }
 
+public class ImportScanRequest
+{
+    public string? RootFolder { get; set; }
+    public bool? DryRun { get; set; }
+    public bool? Recursive { get; set; }
+}
+
 public class ManualReviewImageResponse
 {
     public int SourceImageId { get; set; }

@@ -1,18 +1,58 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using FuelImport.Core.Interfaces;
 using FuelImport.Core.Models;
+using FuelImport.Core.Options;
 using FuelImport.Core.Services;
 using FuelImport.Data.Persistence;
 using FuelImport.Web.Contracts;
+using FuelImport.Web.Services;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection("Import"));
+
+var sqliteConnection = new SqliteConnectionStringBuilder(
+    builder.Configuration.GetConnectionString("FuelImport") ?? "Data Source=fuelimport.db");
+
+var repoRoot = FindNearestParentWithFile("SnapFuel.slnx");
+if (repoRoot is not null)
+{
+    sqliteConnection.DataSource = Path.Combine(repoRoot, "fuelimport.db");
+}
+else if (!Path.IsPathRooted(sqliteConnection.DataSource))
+{
+    sqliteConnection.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, sqliteConnection.DataSource));
+}
+
 builder.Services.AddDbContext<FuelImportDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("FuelImport") ?? "Data Source=fuelimport.db"));
+    options.UseSqlite(sqliteConnection.ConnectionString));
+builder.Services.AddScoped<IImageMetadataExtractor, FileImageMetadataExtractor>();
+builder.Services.AddScoped<IImageClassifier, SimpleImageClassifier>();
+builder.Services.AddScoped<ImageImportService>();
 builder.Services.AddScoped(_ => new ManualReviewGroupingService(TimeSpan.FromMinutes(15), 0.40d));
 builder.Services.AddEndpointsApiExplorer();
+
+static string? FindNearestParentWithFile(string fileName)
+{
+    var current = new DirectoryInfo(AppContext.BaseDirectory);
+    while (current is not null)
+    {
+        var candidate = Path.Combine(current.FullName, fileName);
+        if (File.Exists(candidate))
+        {
+            return current.FullName;
+        }
+
+        current = current.Parent;
+    }
+
+    return null;
+}
 
 var app = builder.Build();
 
@@ -25,6 +65,30 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
     await SeedData.EnsureSeededAsync(db);
 }
+
+app.MapPost("/api/import/scan", async (ImageImportService importService, ImportScanRequest? request, CancellationToken ct) =>
+{
+    ImportOptions? overrideOptions = null;
+    if (request is not null && (!string.IsNullOrWhiteSpace(request.RootFolder) || request.DryRun.HasValue || request.Recursive.HasValue))
+    {
+        overrideOptions = new ImportOptions
+        {
+            RootFolder = request.RootFolder ?? string.Empty,
+            DryRun = request.DryRun ?? false,
+            Recursive = request.Recursive ?? true
+        };
+    }
+
+    var result = await importService.ScanAsync(overrideOptions, ct);
+    return string.IsNullOrEmpty(result.ErrorMessage)
+        ? Results.Ok(result)
+        : Results.BadRequest(result);
+});
+
+app.MapGet("/api/import/config", (IOptions<ImportOptions> options) =>
+{
+    return Results.Ok(options.Value);
+});
 
 app.MapGet("/api/events", async (FuelImportDbContext db, bool? needsReview) =>
 {

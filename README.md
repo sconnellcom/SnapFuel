@@ -4,11 +4,10 @@ Phase 1 scaffolding for importing historical fuel-stop photos, grouping related 
 
 ## Solution layout
 
-- `FuelImport.Core` – domain models plus image grouping services for manual review.
+- `FuelImport.Core` – domain models, options, image metadata extraction, and grouping services for manual review.
 - `FuelImport.Data` – EF Core `FuelImportDbContext` schema + migrations for source images, grouped fuel events, and review history.
 - `FuelImport.Aws` – legacy AWS OCR integration kept only as a reference during the transition away from OCR.
-- `FuelImport.Worker` – folder-first ingestion worker for image metadata extraction and heuristic image tagging.
-- `FuelImport.Web` – manual-entry and export API endpoints with the browser UI.
+- `FuelImport.Web` – manual-entry UI, folder scanning endpoint, export API endpoints, and single database management.
 - `FuelImport.Tests` – focused unit/integration tests for pairing, confidence, validation, and dedup idempotency.
 
 ## Run locally
@@ -19,29 +18,27 @@ dotnet build SnapFuel.slnx
 dotnet test FuelImport.Tests/FuelImport.Tests.csproj
 ```
 
-### Worker
+### Manual Entry & Photo Ingestion Web App
 
-Configure `FuelImport.Worker/appsettings.json`:
+Configure `FuelImport.Web/appsettings.json`:
 
-- `Import:RootFolder` to your photo root path
+- `Import:RootFolder` to your photo root path (e.g. `C:\Users\steph\Downloads\SnapFuelPhotos`)
 - `Import:DryRun` to scan without persisting source images
 
 Run:
 
 ```bash
-dotnet run --project FuelImport.Worker
-```
-
-The worker processes the configured folder once and then exits. It saves source images with timestamps, any available GPS coordinates, and a lightweight filename-based image tag so the web app can group nearby images for manual entry.
-
-### Manual entry and export API
-
-```bash
 dotnet run --project FuelImport.Web
 ```
 
+Open the web app in your browser (e.g., `http://localhost:5000` or `https://localhost:7001`).
+
+Click **Scan Photos** in the header toolbar to scan your configured photo folder into the database on-demand.
+
 Endpoints:
 
+- `POST /api/import/scan`
+- `GET /api/import/config`
 - `GET /api/events?needsReview=true|false`
 - `GET /api/events/{id}`
 - `POST /api/events/{id}/review`
@@ -58,7 +55,7 @@ Endpoints:
 - `GET /log.html`
 - `GET /api/events/export/csv`
 
-If the worker ran with `Import:DryRun=false`, open the web UI to work through grouped image sets. Each group is built from nearby timestamps and matching GPS coordinates from EXIF when available. Saving a group creates or updates one fuel event linked to every image in that group.
+Open the web UI to work through grouped image sets. Each group is built from nearby timestamps and matching GPS coordinates from EXIF when available. Saving a group creates or updates one fuel event linked to every image in that group.
 
 ## Notes
 

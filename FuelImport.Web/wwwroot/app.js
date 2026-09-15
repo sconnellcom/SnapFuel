@@ -6,6 +6,7 @@ const entryForm = document.getElementById('entryForm');
 const vehicleSelect = document.getElementById('vehicleId');
 const groupMetaEl = document.getElementById('groupMeta');
 const pricePerGallonDisplayEl = document.getElementById('pricePerGallonDisplay');
+const scanButton = document.getElementById('scanButton');
 const refreshButton = document.getElementById('refreshButton');
 
 const state = {
@@ -851,6 +852,33 @@ const odometerField = document.getElementById('odometer');
 if (odometerField instanceof HTMLInputElement) {
     odometerField.addEventListener('focus', () => {
         selectLastImageForOdometerFocus();
+    });
+}
+
+if (scanButton) {
+    scanButton.addEventListener('click', async () => {
+        scanButton.disabled = true;
+        renderStatus('Scanning photo folder for new images…');
+        try {
+            const response = await fetch('/api/import/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result?.errorMessage || result?.message || `HTTP ${response.status}`);
+            }
+
+            renderStatus(`Scan complete: ${result.discoveredCount} files found (${result.newImagesCount} new, ${result.existingImagesCount} existing).`);
+            await loadData(state.selectedGroupKey, state.activeImageId);
+        } catch (error) {
+            console.error(error);
+            renderStatus(`Scan failed: ${error.message}`);
+        } finally {
+            scanButton.disabled = false;
+        }
     });
 }
 
