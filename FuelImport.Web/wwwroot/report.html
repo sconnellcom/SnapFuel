@@ -36,49 +36,112 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1440px;
             margin: 0 auto;
             padding: 28px;
         }
 
-        header {
+        .site-header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            gap: 12px;
-            margin-bottom: 20px;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 22px;
+            flex-wrap: wrap;
         }
 
-        h1 {
+        .site-title-group h1 {
             margin: 0;
-            font-size: clamp(2rem, 4vw, 2.8rem);
+            font-size: clamp(1.9rem, 3.5vw, 2.7rem);
             letter-spacing: -0.05em;
         }
 
-        .subtitle,
+        .subtitle {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
         .status {
             color: var(--muted);
         }
 
-        .toolbar {
+        .header-controls {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
             flex-wrap: wrap;
         }
 
-        .menu-link,
+        .site-nav {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 253, 248, 0.65);
+            padding: 4px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+        }
+
+        .menu-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            padding: 8px 16px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--muted);
+            border: 1px solid transparent;
+            transition: all 150ms ease;
+        }
+
+        .menu-link:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.7);
+        }
+
+        .menu-link.active {
+            background: var(--primary);
+            color: #fffaf5;
+            box-shadow: 0 2px 8px rgba(164, 74, 63, 0.3);
+        }
+
+        .page-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         button {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             min-height: 40px;
-            padding: 10px 16px;
+            padding: 10px 18px;
             border-radius: 999px;
-            border: 1px solid var(--border);
-            text-decoration: none;
-            font-weight: 700;
             font-size: 0.92rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+            background: var(--primary);
+            color: #fff9f4;
+            cursor: pointer;
+            transition: transform 150ms ease, background 150ms ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        button.secondary {
+            background: rgba(255, 253, 248, 0.72);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        font-size: 0.92rem;
         }
 
         .menu-link {
@@ -277,16 +340,21 @@
 
 <body>
     <div class="container">
-        <header>
-            <div>
-                <h1>Data Report</h1>
-                <div class="subtitle">Vehicle-level rollup with anomaly totals from your saved fuel events.</div>
+        <header class="site-header">
+            <div class="site-title-group">
+                <h1>SnapFuel</h1>
+                <div class="subtitle">Vehicle-level rollups and fuel trends from saved events.</div>
             </div>
-            <div class="toolbar">
-                <a class="menu-link" href="/">Review Queue</a>
-                <a class="menu-link" href="/vehicles.html">Vehicles</a>
-                <a class="menu-link" href="/log.html">Log</a>
-                <button id="refreshButton" type="button">Refresh</button>
+            <div class="header-controls">
+                <div class="page-actions">
+                    <button id="refreshButton" type="button" class="secondary">Refresh</button>
+                </div>
+                <nav class="site-nav" aria-label="Main Navigation">
+                    <a class="menu-link" href="/">Review Queue</a>
+                    <a class="menu-link" href="/vehicles.html">Vehicles</a>
+                    <a class="menu-link active" href="/report.html">Report</a>
+                    <a class="menu-link" href="/log.html">Log</a>
+                </nav>
             </div>
         </header>
 

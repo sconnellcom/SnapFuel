@@ -2,6 +2,7 @@ const statusEl = document.getElementById('status');
 const logBodyEl = document.getElementById('logBody');
 const refreshButton = document.getElementById('refreshButton');
 const anomalyFilterEl = document.getElementById('anomalyFilter');
+const vehicleFilterEl = document.getElementById('vehicleFilter');
 
 const state = {
     events: []
@@ -45,15 +46,62 @@ function escapeHtml(value) {
 }
 
 function filteredEvents() {
-    if (!(anomalyFilterEl instanceof HTMLSelectElement)) {
-        return state.events;
+    let list = state.events;
+
+    if (vehicleFilterEl instanceof HTMLSelectElement && vehicleFilterEl.value) {
+        const vehicleFilterValue = vehicleFilterEl.value;
+        if (vehicleFilterValue === 'unassigned') {
+            list = list.filter((item) => item.vehicleId == null);
+        } else {
+            const vid = Number(vehicleFilterValue);
+            list = list.filter((item) => item.vehicleId === vid);
+        }
     }
 
-    if (anomalyFilterEl.value === 'onlyAnomalies') {
-        return state.events.filter((item) => (item.anomalyFlags?.length ?? 0) > 0);
+    if (anomalyFilterEl instanceof HTMLSelectElement && anomalyFilterEl.value === 'onlyAnomalies') {
+        list = list.filter((item) => (item.anomalyFlags?.length ?? 0) > 0);
     }
 
-    return state.events;
+    return list;
+}
+
+function renderVehicleFilterOptions() {
+    if (!(vehicleFilterEl instanceof HTMLSelectElement)) {
+        return;
+    }
+
+    const previousValue = vehicleFilterEl.value;
+    const vehicleMap = new Map();
+    let hasUnassigned = false;
+
+    (state.events || []).forEach((event) => {
+        if (event.vehicleId != null) {
+            const name = event.vehicleName && event.vehicleName !== 'Unassigned'
+                ? event.vehicleName
+                : `Vehicle #${event.vehicleId}`;
+            if (!vehicleMap.has(event.vehicleId)) {
+                vehicleMap.set(event.vehicleId, name);
+            }
+        } else {
+            hasUnassigned = true;
+        }
+    });
+
+    const options = ['<option value="">All Vehicles</option>'];
+
+    const sortedVehicles = Array.from(vehicleMap.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    sortedVehicles.forEach(([id, name]) => {
+        options.push(`<option value="${id}">${escapeHtml(name)}</option>`);
+    });
+
+    if (hasUnassigned) {
+        options.push('<option value="unassigned">Unassigned</option>');
+    }
+
+    vehicleFilterEl.innerHTML = options.join('');
+    if (previousValue && Array.from(vehicleFilterEl.options).some((option) => option.value === previousValue)) {
+        vehicleFilterEl.value = previousValue;
+    }
 }
 
 function renderLog() {
@@ -94,11 +142,13 @@ async function loadLog() {
         }
 
         state.events = await response.json();
+        renderVehicleFilterOptions();
         renderLog();
         renderStatus(`Loaded ${state.events.length} events.`);
     } catch (error) {
         console.error(error);
         state.events = [];
+        renderVehicleFilterOptions();
         renderLog();
         renderStatus('Unable to load event log.');
     }
@@ -106,5 +156,8 @@ async function loadLog() {
 
 refreshButton.addEventListener('click', loadLog);
 anomalyFilterEl.addEventListener('change', renderLog);
+if (vehicleFilterEl instanceof HTMLSelectElement) {
+    vehicleFilterEl.addEventListener('change', renderLog);
+}
 
 loadLog();

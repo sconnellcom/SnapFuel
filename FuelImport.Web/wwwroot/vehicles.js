@@ -2,6 +2,9 @@ const statusEl = document.getElementById('status');
 const vehicleManagerListEl = document.getElementById('vehicleManagerList');
 const newVehicleNameEl = document.getElementById('newVehicleName');
 const addVehicleButton = document.getElementById('addVehicleButton');
+const toggleAddVehicleBtn = document.getElementById('toggleAddVehicleBtn');
+const cancelAddVehicleBtn = document.getElementById('cancelAddVehicleBtn');
+const addVehicleWrapper = document.getElementById('addVehicleWrapper');
 
 const state = {
     vehicles: []
@@ -115,12 +118,40 @@ async function createVehicle() {
         if (maxMpgInput instanceof HTMLInputElement) {
             maxMpgInput.value = '';
         }
+        hideAddVehicleForm();
         await loadVehicles();
         renderStatus('Vehicle added.');
     } catch (error) {
         console.error(error);
         renderStatus(error.message || 'Unable to add vehicle.');
     }
+}
+
+function showAddVehicleForm() {
+    if (addVehicleWrapper instanceof HTMLElement) {
+        addVehicleWrapper.classList.add('visible');
+        if (toggleAddVehicleBtn instanceof HTMLElement) {
+            toggleAddVehicleBtn.style.display = 'none';
+        }
+        newVehicleNameEl.focus();
+    }
+}
+
+function hideAddVehicleForm() {
+    if (addVehicleWrapper instanceof HTMLElement) {
+        addVehicleWrapper.classList.remove('visible');
+        if (toggleAddVehicleBtn instanceof HTMLElement) {
+            toggleAddVehicleBtn.style.display = 'inline-flex';
+        }
+    }
+}
+
+if (toggleAddVehicleBtn instanceof HTMLElement) {
+    toggleAddVehicleBtn.addEventListener('click', showAddVehicleForm);
+}
+
+if (cancelAddVehicleBtn instanceof HTMLElement) {
+    cancelAddVehicleBtn.addEventListener('click', hideAddVehicleForm);
 }
 
 async function updateVehicle(vehicleId, name, active, noOdometer, maxGallonsPerFillUp, maxMpg) {

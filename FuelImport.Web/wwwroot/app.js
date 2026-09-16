@@ -9,16 +9,31 @@ const pricePerGallonDisplayEl = document.getElementById('pricePerGallonDisplay')
 const scanButton = document.getElementById('scanButton');
 const refreshButton = document.getElementById('refreshButton');
 
+let initialReviewerName = '';
+try {
+    initialReviewerName = localStorage.getItem('snapfuel_last_reviewer_name') || '';
+} catch {
+    initialReviewerName = '';
+}
+
+const MAGNIFICATION_LEVELS = [1.6, 2.5, 4.0];
+const MAGNIFICATION_LABELS = ['1.6x', '2.5x', '4.0x'];
+const THUMB_ZOOM_LEVELS = [1.35, 2.2, 1.0];
+
 const state = {
     groups: [],
     vehicles: [],
     selectedGroupKey: null,
     activeImageId: null,
-    hoverPreview: null,
     drafts: {},
     splitSelections: {},
+    thumbZoomByImageId: {},
     saveInFlightByGroup: {},
-    pendingAutosaveByGroup: {}
+    pendingAutosaveByGroup: {},
+    queueFilter: 'all',
+    pendingSnapshotGroupKeys: new Set(),
+    magnificationIndex: 1,
+    lastSavedReviewerName: initialReviewerName
 };
 
 function renderStatus(message) {
@@ -27,6 +42,60 @@ function renderStatus(message) {
 
 function numberOrNull(value) {
     return value === '' ? null : Number(value);
+}
+
+function parseSafeMathExpression(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) {
+        return null;
+    }
+
+    const normalized = raw.replace(/\s+/g, '');
+    if (!/^[0-9.+-]+$/.test(normalized)) {
+        return null;
+    }
+
+    if (!/[+-]/.test(normalized)) {
+        return null;
+    }
+
+    const tokens = normalized.split(/([+-])/).filter((token) => token !== '');
+    let total = 0;
+    let currentSign = 1;
+
+    for (const token of tokens) {
+        if (token === '+' || token === '-') {
+            currentSign = token === '+' ? 1 : -1;
+            continue;
+        }
+
+        const parsedValue = Number(token);
+        if (!Number.isFinite(parsedValue)) {
+            return null;
+        }
+
+        total += currentSign * parsedValue;
+        currentSign = 1;
+    }
+
+    return total;
+}
+
+function unifyMathInputValue(field) {
+    if (!(field instanceof HTMLInputElement)) {
+        return;
+    }
+
+    const rawValue = field.value;
+    const evaluated = parseSafeMathExpression(rawValue);
+    if (evaluated == null) {
+        return;
+    }
+
+    field.value = String(evaluated);
+    if (field.value === '-0') {
+        field.value = '0';
+    }
 }
 
 function formatDate(value) {
@@ -139,6 +208,22 @@ function activeGroup() {
     return state.groups.find((group) => group.groupKey === state.selectedGroupKey) ?? null;
 }
 
+function updatePendingSnapshot() {
+    state.pendingSnapshotGroupKeys = new Set(
+        state.groups
+            .filter((group) => group.fuelEventId == null)
+            .map((group) => group.groupKey)
+    );
+}
+
+function getVisibleGroups() {
+    if (state.queueFilter === 'pending') {
+        return state.groups.filter((group) => state.pendingSnapshotGroupKeys.has(group.groupKey) || group.fuelEventId == null);
+    }
+
+    return state.groups;
+}
+
 function activeImage() {
     const group = activeGroup();
     return group?.images.find((image) => image.sourceImageId === state.activeImageId) ?? group?.images[0] ?? null;
@@ -196,6 +281,18 @@ function setSplitSelection(groupKey, imageIds) {
     }
 }
 
+function updateSplitButtonsVisibility(groupKey) {
+    const container = document.getElementById('splitActionsContainer');
+    const splitBtn = document.getElementById('splitSelectedButton');
+    const selection = getSplitSelection(groupKey);
+    if (container instanceof HTMLElement) {
+        container.style.display = selection.length > 0 ? '' : 'none';
+    }
+    if (splitBtn instanceof HTMLElement) {
+        splitBtn.textContent = `Split selected (${selection.length})`;
+    }
+}
+
 function getGroupFormState(group) {
     return getDraft(group.groupKey) ?? {
         fuelEventId: group.fuelEventId,
@@ -206,7 +303,7 @@ function getGroupFormState(group) {
         totalPrice: group.totalPrice ?? null,
         locationName: group.locationName ?? null,
         notes: group.notes ?? null,
-        reviewerName: 'Manual UI'
+        reviewerName: state.lastSavedReviewerName || ''
     };
 }
 
@@ -220,7 +317,7 @@ function serializeFormState(formState) {
         totalPrice: formState.totalPrice ?? null,
         locationName: formState.locationName ?? null,
         notes: formState.notes ?? null,
-        reviewerName: formState.reviewerName ?? 'Manual UI'
+        reviewerName: formState.reviewerName ?? (state.lastSavedReviewerName || '')
     });
 }
 
@@ -229,6 +326,9 @@ function captureFormDraft() {
     if (!group) {
         return null;
     }
+
+    const reviewerInput = document.getElementById('reviewerName');
+    const reviewerValue = reviewerInput instanceof HTMLInputElement ? reviewerInput.value : (state.lastSavedReviewerName || '');
 
     const draft = {
         fuelEventId: group.fuelEventId,
@@ -239,7 +339,7 @@ function captureFormDraft() {
         totalPrice: numberOrNull(document.getElementById('totalPrice').value),
         locationName: document.getElementById('locationName').value || null,
         notes: document.getElementById('notes').value || null,
-        reviewerName: document.getElementById('reviewerName').value || 'Manual UI'
+        reviewerName: reviewerValue
     };
 
     state.drafts[group.groupKey] = draft;
@@ -330,7 +430,7 @@ function selectLastImageForOdometerFocus() {
     }
 }
 
-async function loadData(preferredGroupKey, preferredImageId) {
+async function loadData(preferredGroupKey, preferredImageId, focusFieldId = null) {
     renderStatus('Loading grouped images…');
 
     try {
@@ -345,9 +445,11 @@ async function loadData(preferredGroupKey, preferredImageId) {
 
         state.groups = await groupResponse.json();
         state.vehicles = await vehicleResponse.json();
+        updatePendingSnapshot();
+        const visibleGroups = getVisibleGroups();
         state.selectedGroupKey = preferredGroupKey && state.groups.some((group) => group.groupKey === preferredGroupKey)
             ? preferredGroupKey
-            : state.groups[0]?.groupKey ?? null;
+            : (visibleGroups[0]?.groupKey ?? state.groups[0]?.groupKey ?? null);
 
         const selectedGroup = activeGroup();
         state.activeImageId = preferredImageId && selectedGroup?.images.some((image) => image.sourceImageId === preferredImageId)
@@ -358,6 +460,17 @@ async function loadData(preferredGroupKey, preferredImageId) {
         renderVehicleOptions();
         renderQueue();
         renderWorkspace();
+
+        if (focusFieldId) {
+            const field = document.getElementById(focusFieldId);
+            if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) {
+                field.focus();
+                if (field instanceof HTMLInputElement) {
+                    field.select();
+                }
+            }
+        }
+
         renderStatus(`Loaded ${state.groups.length} image groups.`);
     } catch (error) {
         console.error(error);
@@ -384,12 +497,13 @@ function renderQueue() {
     const savedCount = state.groups.filter((group) => group.fuelEventId != null).length;
     queueSummaryEl.textContent = `${savedCount}/${state.groups.length} saved`;
 
-    if (!state.groups.length) {
-        groupListEl.innerHTML = '<div class="empty-state">No imported images found yet.</div>';
+    const visibleGroups = getVisibleGroups();
+    if (!visibleGroups.length) {
+        groupListEl.innerHTML = `<div class="empty-state">${state.queueFilter === 'pending' ? 'No pending image groups.' : 'No imported images found yet.'}</div>`;
         return;
     }
 
-    groupListEl.innerHTML = state.groups.map((group) => {
+    groupListEl.innerHTML = visibleGroups.map((group) => {
         const formState = getGroupFormState(group);
         const orderedImages = getOrderedImages(group);
         const earliestPhotoTimestamp = orderedImages[0]?.capturedAtUtc ?? group.startedAtUtc;
@@ -462,6 +576,7 @@ function renderWorkspace() {
     const orderedImages = getOrderedImages(group);
 
     const splitSelection = getSplitSelection(group.groupKey);
+    const hasSplitSelection = splitSelection.length > 0;
 
     viewerShellEl.innerHTML = `
     <div class="viewer-top">
@@ -471,13 +586,16 @@ function renderWorkspace() {
         <div class="group-meta">${formatCoordinate(group.latitude, group.longitude)} · Spread ${formatDistance(group.maxDistanceKilometers)}</div>
       </div>
       <div class="viewer-actions">
-        <div>
-          <button id="splitSelectedButton" type="button" class="secondary">Split selected</button>
+        <div id="splitActionsContainer" style="${hasSplitSelection ? '' : 'display: none;'}">
+          <button id="splitSelectedButton" type="button" class="secondary">Split selected (${splitSelection.length})</button>
           <button id="clearSplitSelectionButton" type="button" class="secondary">Clear selection</button>
         </div>
       </div>
       <div class="thumb-strip">
-                ${orderedImages.map((item) => `
+                ${orderedImages.map((item) => {
+        const zoomIndex = state.thumbZoomByImageId[item.sourceImageId] ?? 0;
+        const currentZoom = THUMB_ZOOM_LEVELS[zoomIndex];
+        return `
           <div class="thumb-card ${item.sourceImageId === state.activeImageId ? 'active' : ''}" data-role="thumb-card" data-image-id="${item.sourceImageId}">
             <div class="thumb-actions">
               <label class="thumb-check">
@@ -485,18 +603,22 @@ function renderWorkspace() {
               </label>
             </div>
             <div class="thumb-image-frame" data-role="thumb-frame" data-image-id="${item.sourceImageId}">
-              <img src="${item.imageUrl}" alt="${escapeHtml(item.fileName)}" data-role="thumb-image" data-image-id="${item.sourceImageId}" />
-              <div class="thumb-focus" data-role="thumb-focus" data-image-id="${item.sourceImageId}"></div>
+              <img src="${item.imageUrl}" alt="${escapeHtml(item.fileName)}" data-role="thumb-image" data-image-id="${item.sourceImageId}" style="transform: scale(${currentZoom});" />
             </div>
             <div><span class="badge badge-type">${escapeHtml(item.imageTypeCandidate)}</span></div>
             <div class="image-meta">${escapeHtml(item.fileName)}</div>
             <div class="thumb-time">${formatDate(item.capturedAtUtc)}</div>
                         ${formatDistance(item.distanceFromPreviousKilometers) ? `<div class="thumb-time">${formatDistance(item.distanceFromPreviousKilometers)}</div>` : ''}
           </div>
-        `).join('')}
+        `;
+    }).join('')}
       </div>
     </div>
-    <div class="hero-image" id="heroImage">${image ? `<img id="heroImageTag" src="${image.imageUrl}" alt="${escapeHtml(image.fileName)}" /><div id="magnifier" class="magnifier"></div>` : '<div class="helper">No image selected.</div>'}</div>
+    <div class="hero-image" id="heroImage">${image ? `
+      <img id="heroImageTag" src="${image.imageUrl}" alt="${escapeHtml(image.fileName)}" />
+      <div id="magnifierLens" class="magnifier-lens"></div>
+      <div id="zoomBadge" class="zoom-badge">${MAGNIFICATION_LABELS[state.magnificationIndex]} (click to cycle)</div>
+    ` : '<div class="helper">No image selected.</div>'}</div>
     <div>
       <div class="image-meta">${image ? `${escapeHtml(image.fileName)} · ${escapeHtml(image.imageTypeCandidate)} · ${(image.imageTypeConfidence * 100).toFixed(0)}% heuristic confidence` : 'No image selected.'}</div>
       <div class="image-meta">Captured: ${image ? formatDate(image.capturedAtUtc) : 'Unknown time'}</div>
@@ -505,28 +627,24 @@ function renderWorkspace() {
 
     viewerShellEl.querySelectorAll('[data-role="thumb-card"]').forEach((card) => {
         card.addEventListener('click', () => {
+            const imageId = Number(card.dataset.imageId);
             const focusState = captureFocusState();
             captureFormDraft();
-            state.activeImageId = Number(card.dataset.imageId);
-            state.hoverPreview = null;
+            state.activeImageId = imageId;
+            const currentIndex = state.thumbZoomByImageId[imageId] ?? 0;
+            state.thumbZoomByImageId[imageId] = (currentIndex + 1) % THUMB_ZOOM_LEVELS.length;
             renderWorkspace();
             restoreFocusState(focusState);
         });
     });
 
-    viewerShellEl.querySelectorAll('[data-role="thumb-frame"]').forEach((frame) => {
-        frame.addEventListener('mousemove', handleThumbnailHover);
-        frame.addEventListener('mouseenter', handleThumbnailHover);
-        frame.addEventListener('mouseleave', () => {
-            const focus = frame.querySelector('[data-role="thumb-focus"]');
-            if (focus instanceof HTMLElement) {
-                focus.classList.remove('visible');
-            }
-
-            state.hoverPreview = null;
-            renderHeroPreview();
-        });
-    });
+    const heroEl = document.getElementById('heroImage');
+    if (heroEl && image) {
+        heroEl.addEventListener('mousemove', handleHeroMouseMove);
+        heroEl.addEventListener('mouseenter', handleHeroMouseMove);
+        heroEl.addEventListener('mouseleave', handleHeroMouseLeave);
+        heroEl.addEventListener('click', handleHeroClick);
+    }
 
     viewerShellEl.querySelectorAll('[data-role="split-checkbox"]').forEach((element) => {
         element.addEventListener('click', (event) => {
@@ -545,14 +663,21 @@ function renderWorkspace() {
                 .filter((input) => input.checked)
                 .map((input) => Number(input.dataset.imageId));
             setSplitSelection(group.groupKey, selected);
+            updateSplitButtonsVisibility(group.groupKey);
         });
     });
 
-    document.getElementById('splitSelectedButton').addEventListener('click', splitSelectedImages);
-    document.getElementById('clearSplitSelectionButton').addEventListener('click', () => {
-        setSplitSelection(group.groupKey, []);
-        renderWorkspace();
-    });
+    const splitBtn = document.getElementById('splitSelectedButton');
+    if (splitBtn) {
+        splitBtn.addEventListener('click', splitSelectedImages);
+    }
+    const clearSplitBtn = document.getElementById('clearSplitSelectionButton');
+    if (clearSplitBtn) {
+        clearSplitBtn.addEventListener('click', () => {
+            setSplitSelection(group.groupKey, []);
+            renderWorkspace();
+        });
+    }
 
     const formState = getGroupFormState(group);
     vehicleSelect.value = formState.vehicleId ?? '';
@@ -561,87 +686,66 @@ function renderWorkspace() {
     document.getElementById('totalPrice').value = formState.totalPrice ?? '';
     document.getElementById('locationName').value = formState.locationName ?? '';
     document.getElementById('notes').value = formState.notes ?? '';
-    document.getElementById('reviewerName').value = formState.reviewerName ?? 'Manual UI';
+    document.getElementById('reviewerName').value = formState.reviewerName ?? (state.lastSavedReviewerName || '');
     groupMetaEl.textContent = group.fuelEventId ? `Editing event #${group.fuelEventId}` : `${group.images.length} linked image${group.images.length === 1 ? '' : 's'}`;
     renderPricePerGallon(group.pricePerGallon);
-    renderHeroPreview();
 }
 
-function handleThumbnailHover(event) {
-    const frame = event.currentTarget;
-    if (!(frame instanceof HTMLElement)) {
-        return;
-    }
-
-    const group = activeGroup();
-    const imageId = Number(frame.dataset.imageId);
-    const item = group?.images.find((entry) => entry.sourceImageId === imageId);
-    const thumbImage = frame.querySelector('[data-role="thumb-image"]');
-    const focus = frame.querySelector('[data-role="thumb-focus"]');
+function handleHeroMouseMove(event) {
     const hero = document.getElementById('heroImage');
-    if (!item || !(thumbImage instanceof HTMLImageElement) || !(focus instanceof HTMLElement) || !(hero instanceof HTMLElement)) {
+    const imageTag = document.getElementById('heroImageTag');
+    const lens = document.getElementById('magnifierLens');
+    const badge = document.getElementById('zoomBadge');
+    if (!(hero instanceof HTMLElement) || !(imageTag instanceof HTMLImageElement) || !(lens instanceof HTMLElement)) {
         return;
     }
 
-    const frameRect = frame.getBoundingClientRect();
-    const imageRect = thumbImage.getBoundingClientRect();
-    const pointerX = event.clientX;
-    const pointerY = event.clientY;
+    const heroRect = hero.getBoundingClientRect();
+    const imgRect = imageTag.getBoundingClientRect();
 
-    if (pointerX < imageRect.left || pointerX > imageRect.right || pointerY < imageRect.top || pointerY > imageRect.bottom) {
-        focus.classList.remove('visible');
-        state.hoverPreview = null;
-        renderHeroPreview();
+    const mouseX = event.clientX - heroRect.left;
+    const mouseY = event.clientY - heroRect.top;
+
+    if (mouseX < 0 || mouseX > heroRect.width || mouseY < 0 || mouseY > heroRect.height) {
+        lens.classList.remove('visible');
         return;
     }
 
-    const relativeX = (pointerX - imageRect.left) / imageRect.width;
-    const relativeY = (pointerY - imageRect.top) / imageRect.height;
-    const focusSize = Math.min(52, imageRect.width, imageRect.height);
-    const left = Math.min(
-        Math.max(pointerX - frameRect.left - focusSize / 2, imageRect.left - frameRect.left),
-        imageRect.right - frameRect.left - focusSize);
-    const top = Math.min(
-        Math.max(pointerY - frameRect.top - focusSize / 2, imageRect.top - frameRect.top),
-        imageRect.bottom - frameRect.top - focusSize);
+    const lensSize = 400;
+    lens.style.left = `${mouseX - lensSize / 2}px`;
+    lens.style.top = `${mouseY - lensSize / 2}px`;
 
-    focus.classList.add('visible');
-    focus.style.width = `${focusSize}px`;
-    focus.style.height = `${focusSize}px`;
-    focus.style.left = `${left}px`;
-    focus.style.top = `${top}px`;
+    let relX = imgRect.width > 0 ? (event.clientX - imgRect.left) / imgRect.width : 0.5;
+    let relY = imgRect.height > 0 ? (event.clientY - imgRect.top) / imgRect.height : 0.5;
+    relX = Math.max(0, Math.min(1, relX));
+    relY = Math.max(0, Math.min(1, relY));
 
-    const zoom = 1.35;
-    state.hoverPreview = {
-        imageUrl: item.imageUrl,
-        backgroundWidth: hero.clientWidth * zoom,
-        backgroundHeight: hero.clientHeight * zoom,
-        backgroundX: -(relativeX * hero.clientWidth * zoom - hero.clientWidth / 2),
-        backgroundY: -(relativeY * hero.clientHeight * zoom - hero.clientHeight / 2)
-    };
+    const zoom = MAGNIFICATION_LEVELS[state.magnificationIndex];
+    const bgWidth = imgRect.width * zoom;
+    const bgHeight = imgRect.height * zoom;
+    const bgX = -(relX * bgWidth - lensSize / 2);
+    const bgY = -(relY * bgHeight - lensSize / 2);
 
-    renderHeroPreview();
+    lens.style.backgroundImage = `url("${imageTag.src}")`;
+    lens.style.backgroundSize = `${bgWidth}px ${bgHeight}px`;
+    lens.style.backgroundPosition = `${bgX}px ${bgY}px`;
+    lens.classList.add('visible');
+
+    if (badge) {
+        badge.textContent = `${MAGNIFICATION_LABELS[state.magnificationIndex]} (click to cycle)`;
+    }
 }
 
-function renderHeroPreview() {
-    const image = document.getElementById('heroImageTag');
-    const lens = document.getElementById('magnifier');
-    if (!(image instanceof HTMLImageElement) || !(lens instanceof HTMLElement)) {
-        return;
-    }
+function handleHeroClick(event) {
+    state.magnificationIndex = (state.magnificationIndex + 1) % MAGNIFICATION_LEVELS.length;
+    handleHeroMouseMove(event);
+}
 
-    if (!state.hoverPreview) {
-        image.style.opacity = '1';
+function handleHeroMouseLeave() {
+    const lens = document.getElementById('magnifierLens');
+    if (lens instanceof HTMLElement) {
         lens.classList.remove('visible');
-        lens.style.backgroundImage = 'none';
-        return;
     }
-
-    image.style.opacity = '0';
-    lens.classList.add('visible');
-    lens.style.backgroundImage = `url("${state.hoverPreview.imageUrl}")`;
-    lens.style.backgroundSize = `${state.hoverPreview.backgroundWidth}px ${state.hoverPreview.backgroundHeight}px`;
-    lens.style.backgroundPosition = `${state.hoverPreview.backgroundX}px ${state.hoverPreview.backgroundY}px`;
 }
 
 function renderPricePerGallon(existingValue) {
@@ -704,6 +808,18 @@ async function persistCurrentGroup(options = {}) {
         }
 
         const savedEvent = await response.json();
+        if (payload.reviewerName !== undefined) {
+            state.lastSavedReviewerName = payload.reviewerName;
+            try {
+                if (payload.reviewerName) {
+                    localStorage.setItem('snapfuel_last_reviewer_name', payload.reviewerName);
+                } else {
+                    localStorage.removeItem('snapfuel_last_reviewer_name');
+                }
+            } catch {
+                // ignore
+            }
+        }
         updateLocalGroupFromPayload(group.groupKey, payload, savedEvent);
         state.drafts[group.groupKey] = { ...payload, fuelEventId: savedEvent?.fuelEventId ?? payload.fuelEventId };
         renderQueue();
@@ -739,7 +855,25 @@ async function saveGroup(event) {
     }
 
     const nextGroupKey = getNextPendingGroupKey(currentGroupKey);
-    await loadData(nextGroupKey, null);
+    if (nextGroupKey && nextGroupKey !== currentGroupKey) {
+        state.selectedGroupKey = nextGroupKey;
+        const nextGroup = activeGroup();
+        state.activeImageId = getDefaultImageId(nextGroup);
+        state.hoverPreview = null;
+        renderQueue();
+        renderWorkspace();
+
+        const field = document.getElementById('totalPrice');
+        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) {
+            field.focus();
+            if (field instanceof HTMLInputElement) {
+                field.select();
+            }
+        }
+    } else {
+        renderQueue();
+        renderWorkspace();
+    }
 }
 
 async function autosaveCurrentField() {
@@ -844,6 +978,10 @@ entryForm.querySelectorAll('input, select, textarea').forEach((field) => {
     });
 
     field.addEventListener('blur', async () => {
+        if ((field.id === 'gallons' || field.id === 'totalPrice') && field instanceof HTMLInputElement) {
+            unifyMathInputValue(field);
+        }
+
         await autosaveCurrentField();
     });
 });
@@ -885,6 +1023,37 @@ if (scanButton) {
 refreshButton.addEventListener('click', async () => {
     captureFormDraft();
     await loadData(state.selectedGroupKey, state.activeImageId);
+});
+
+function updateQueueFilterButtons() {
+    document.querySelectorAll('.queue-filter-btn').forEach((btn) => {
+        if (btn instanceof HTMLElement) {
+            btn.classList.toggle('active', btn.dataset.filter === state.queueFilter);
+        }
+    });
+}
+
+function setQueueFilter(filter) {
+    state.queueFilter = filter;
+    updateQueueFilterButtons();
+    if (state.queueFilter === 'pending') {
+        updatePendingSnapshot();
+    }
+    renderQueue();
+    const visible = getVisibleGroups();
+    if (state.selectedGroupKey && !visible.some((group) => group.groupKey === state.selectedGroupKey)) {
+        state.selectedGroupKey = visible[0]?.groupKey ?? null;
+        state.activeImageId = getDefaultImageId(activeGroup());
+        renderWorkspace();
+    }
+}
+
+document.querySelectorAll('.queue-filter-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        if (btn instanceof HTMLElement && btn.dataset.filter) {
+            setQueueFilter(btn.dataset.filter);
+        }
+    });
 });
 
 loadData();

@@ -34,60 +34,98 @@
         }
 
         .container {
-            max-width: 980px;
+            max-width: 1440px;
             margin: 0 auto;
             padding: 28px;
         }
 
-        header {
+        .site-header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             gap: 16px;
             margin-bottom: 22px;
+            flex-wrap: wrap;
         }
 
-        h1 {
+        .site-title-group h1 {
             margin: 0;
-            font-size: clamp(2rem, 4vw, 2.8rem);
+            font-size: clamp(1.9rem, 3.5vw, 2.7rem);
             letter-spacing: -0.05em;
         }
 
-        .subtitle,
+        .subtitle {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
         .status,
         .helper {
             color: var(--muted);
         }
 
-        .toolbar {
+        .header-controls {
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-wrap: wrap;
         }
 
-        .menu-link,
-        button {
+        .site-nav {
             display: inline-flex;
             align-items: center;
-            justify-content: center;
-            min-height: 42px;
-            padding: 11px 18px;
+            gap: 6px;
+            background: rgba(255, 253, 248, 0.65);
+            padding: 4px;
             border-radius: 999px;
-            text-decoration: none;
-            font-size: 0.95rem;
-            font-weight: 700;
             border: 1px solid var(--border);
         }
 
         .menu-link {
-            background: rgba(255, 253, 248, 0.72);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            padding: 8px 16px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--muted);
+            border: 1px solid transparent;
+            transition: all 150ms ease;
+        }
+
+        .menu-link:hover {
             color: var(--text);
+            background: rgba(255, 255, 255, 0.7);
+        }
+
+        .menu-link.active {
+            background: var(--primary);
+            color: #fffaf5;
+            box-shadow: 0 2px 8px rgba(164, 74, 63, 0.3);
         }
 
         button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            padding: 10px 18px;
+            border-radius: 999px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            border: 1px solid transparent;
             background: var(--primary);
             color: #fffaf5;
             cursor: pointer;
+            transition: transform 150ms ease, background 150ms ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
         }
 
         .panel {
@@ -96,6 +134,72 @@
             border-radius: 24px;
             padding: 20px;
             box-shadow: var(--shadow);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            gap: 12px;
+        }
+
+        .panel-header h2 {
+            margin: 0;
+            font-size: 1.35rem;
+            letter-spacing: -0.02em;
+        }
+
+        .add-vehicle-card {
+            display: none;
+            background: rgba(255, 255, 255, 0.78);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 22px;
+            box-shadow: 0 10px 30px rgba(72, 42, 22, 0.08);
+            animation: fadeIn 180ms ease-out;
+        }
+
+        .add-vehicle-card.visible {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-6px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .add-vehicle-card h3 {
+            margin: 0 0 14px 0;
+            font-size: 1.1rem;
+            color: var(--text);
+        }
+
+        .add-form-fields {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .add-form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+            justify-content: flex-end;
+        }
+
+        button.secondary {
+            background: rgba(255, 253, 248, 0.72);
+            color: var(--text);
+            border: 1px solid var(--border);
         }
 
         .add-row {
@@ -204,41 +308,58 @@
 
 <body>
     <div class="container">
-        <header>
-            <div>
-                <h1>Vehicle Options</h1>
-                <div class="subtitle">Manage the names shown in the fuel-entry vehicle picker.</div>
+        <header class="site-header">
+            <div class="site-title-group">
+                <h1>SnapFuel</h1>
+                <div class="subtitle">Manage vehicles and threshold settings for fuel logging.</div>
             </div>
-            <div class="toolbar">
-                <a class="menu-link" href="/">Review Queue</a>
-                <a class="menu-link" href="/report.html">Report</a>
-                <a class="menu-link" href="/log.html">Log</a>
+            <div class="header-controls">
+                <nav class="site-nav" aria-label="Main Navigation">
+                    <a class="menu-link" href="/">Review Queue</a>
+                    <a class="menu-link active" href="/vehicles.html">Vehicles</a>
+                    <a class="menu-link" href="/report.html">Report</a>
+                    <a class="menu-link" href="/log.html">Log</a>
+                </nav>
             </div>
         </header>
 
         <div id="status" class="status">Loading vehicles…</div>
 
         <section class="panel">
-            <div class="add-row">
-                <div>
-                    <input id="newVehicleName" type="text" placeholder="Add a vehicle name" />
-                    <label class="checkbox-row">
-                        <input id="newVehicleNoOdometer" type="checkbox" />
-                        No Odometer
-                    </label>
+            <div class="panel-header">
+                <h2>Configured Vehicles</h2>
+                <button id="toggleAddVehicleBtn" type="button">+ Add Vehicle</button>
+            </div>
+
+            <div id="addVehicleWrapper" class="add-vehicle-card">
+                <h3>Add New Vehicle</h3>
+                <div class="add-form-fields">
+                    <div>
+                        <input id="newVehicleName" type="text" placeholder="Vehicle name (e.g. 2018 Ford F-150)"
+                            style="width: 100%;" />
+                    </div>
+                    <div>
+                        <label class="checkbox-row">
+                            <input id="newVehicleNoOdometer" type="checkbox" />
+                            No Odometer (skip odometer check)
+                        </label>
+                    </div>
                     <div class="add-threshold-grid">
                         <label>
-                            Max Gallons (optional)
+                            Max Gallons (optional callout threshold)
                             <input id="newVehicleMaxGallons" type="number" min="0" step="0.01"
                                 placeholder="e.g. 21.5" />
                         </label>
                         <label>
-                            Max MPG (optional)
+                            Max MPG (optional callout threshold)
                             <input id="newVehicleMaxMpg" type="number" min="0" step="0.01" placeholder="e.g. 50" />
                         </label>
                     </div>
                 </div>
-                <button id="addVehicleButton" type="button">Add vehicle</button>
+                <div class="add-form-actions">
+                    <button id="cancelAddVehicleBtn" type="button" class="secondary">Cancel</button>
+                    <button id="addVehicleButton" type="button">Save vehicle</button>
+                </div>
             </div>
 
             <div id="vehicleManagerList" class="vehicle-list"></div>
