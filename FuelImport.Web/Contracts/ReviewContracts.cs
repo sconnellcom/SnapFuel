@@ -50,6 +50,7 @@ public class VehicleManagementResponse
     public bool NoOdometer { get; set; }
     public decimal? MaxGallonsPerFillUp { get; set; }
     public decimal? MaxMpg { get; set; }
+    public string? PhotoDescription { get; set; }
 }
 
 public class VehicleUpsertRequest
@@ -59,6 +60,7 @@ public class VehicleUpsertRequest
     public bool? NoOdometer { get; set; }
     public decimal? MaxGallonsPerFillUp { get; set; }
     public decimal? MaxMpg { get; set; }
+    public string? PhotoDescription { get; set; }
 }
 
 public class EventLogResponse
@@ -138,6 +140,9 @@ public class ManualReviewGroupResponse
     public decimal? PricePerGallon { get; set; }
     public string? Notes { get; set; }
     public ReviewStatus? ReviewStatus { get; set; }
+    public EntrySource? EntrySource { get; set; }
+    public decimal? DetectionConfidence { get; set; }
+    public string? ReviewReason { get; set; }
     public List<ManualReviewImageResponse> Images { get; set; } = [];
 }
 
@@ -164,4 +169,15 @@ public class ManualReviewMergeRequest
 {
     public string SourceGroupKey { get; set; } = string.Empty;
     public string TargetGroupKey { get; set; } = string.Empty;
+}
+
+public class AutoDetectRequest
+{
+    /// <summary>Restricts the run to a single review-queue group. When omitted every eligible group is processed.</summary>
+    public string? GroupKey { get; set; }
+
+    /// <summary>Re-runs detection over groups that already have an unreviewed fuel event.</summary>
+    public bool? RedetectExisting { get; set; }
+
+    public int? Limit { get; set; }
 }

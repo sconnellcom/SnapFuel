@@ -6,6 +6,10 @@ public class Vehicle
     public string Name { get; set; } = string.Empty;
     public bool NoOdometer { get; set; }
     public string? Description { get; set; }
+
+    /// <summary>Free-text hint describing how this vehicle's dashboard looks, passed to the vision model.</summary>
+    public string? PhotoDescription { get; set; }
+
     public string DashboardLabel { get; set; } = string.Empty;
     public decimal ExpectedTankGallonsMin { get; set; }
     public decimal ExpectedTankGallonsMax { get; set; }

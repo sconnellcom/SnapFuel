@@ -23,6 +23,9 @@ public class FuelEvent
     public bool NeedsReview { get; set; }
     public ReviewStatus ReviewStatus { get; set; } = ReviewStatus.Pending;
     public string? ReviewReason { get; set; }
+    public EntrySource EntrySource { get; set; } = EntrySource.Manual;
+    public string? DetectionDetailsJson { get; set; }
+    public DateTime? DetectedAtUtc { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

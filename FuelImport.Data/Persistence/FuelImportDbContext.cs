@@ -44,7 +44,11 @@ public class FuelImportDbContext(DbContextOptions<FuelImportDbContext> options) 
         modelBuilder.Entity<ValidationIssue>().HasKey(x => x.ValidationIssueId);
         modelBuilder.Entity<OcrResult>().HasKey(x => x.OcrResultId);
         modelBuilder.Entity<HumanReview>().HasKey(x => x.HumanReviewId);
-        modelBuilder.Entity<Vehicle>().HasKey(x => x.VehicleId);
+        modelBuilder.Entity<Vehicle>(entity =>
+        {
+            entity.HasKey(x => x.VehicleId);
+            entity.Property(x => x.PhotoDescription).HasMaxLength(1024);
+        });
         modelBuilder.Entity<ImportBatch>().HasKey(x => x.ImportBatchId);
     }
 }

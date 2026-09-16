@@ -2,6 +2,7 @@
   <Project Path="FuelImport.Aws/FuelImport.Aws.csproj" />
   <Project Path="FuelImport.Core/FuelImport.Core.csproj" />
   <Project Path="FuelImport.Data/FuelImport.Data.csproj" />
+  <Project Path="FuelImport.HuggingFace/FuelImport.HuggingFace.csproj" />
   <Project Path="FuelImport.Tests/FuelImport.Tests.csproj" />
   <Project Path="FuelImport.Web/FuelImport.Web.csproj" />
 </Solution>

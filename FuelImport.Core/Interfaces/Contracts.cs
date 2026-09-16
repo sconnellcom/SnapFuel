@@ -37,6 +37,13 @@ public interface IEventPairingService
     IReadOnlyCollection<EventCandidate> Pair(IEnumerable<SourceImage> images);
 }
 
+public interface IVisionAutoDetector
+{
+    bool IsConfigured { get; }
+
+    Task<ImageDetection> DetectAsync(SourceImage image, DetectionEstimates estimates, IReadOnlyCollection<VehicleHint> vehicleHints, CancellationToken cancellationToken = default);
+}
+
 public interface IConfidenceScorer
 {
     decimal Calculate(decimal pumpOcrConfidence, decimal dashOcrConfidence, decimal classificationConfidence, decimal pairingConfidence, decimal vehicleConfidence, int errorCount, int warningCount);

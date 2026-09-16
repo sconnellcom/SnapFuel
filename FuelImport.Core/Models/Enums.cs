@@ -24,7 +24,14 @@ public enum ProcessingStatus
 public enum ReviewStatus
 {
     Pending = 0,
-    Approved = 1,
+    Reviewed = 1,
     Rejected = 2,
-    Corrected = 3
+    Corrected = 3,
+    AutoDetected = 4
+}
+
+public enum EntrySource
+{
+    Manual = 0,
+    AutoDetected = 1
 }

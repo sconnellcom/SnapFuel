@@ -1,20 +1,26 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using FuelImport.Core.Interfaces;
 using FuelImport.Core.Models;
 using FuelImport.Core.Options;
 using FuelImport.Core.Services;
 using FuelImport.Data.Persistence;
+using FuelImport.HuggingFace.Options;
+using FuelImport.HuggingFace.Services;
 using FuelImport.Web.Contracts;
 using FuelImport.Web.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection("Import"));
+builder.Services.Configure<AutoDetectOptions>(builder.Configuration.GetSection("AutoDetect"));
+builder.Services.Configure<HuggingFaceVisionOptions>(builder.Configuration.GetSection("HuggingFaceVision"));
 
 var sqliteConnection = new SqliteConnectionStringBuilder(
     builder.Configuration.GetConnectionString("FuelImport") ?? "Data Source=fuelimport.db");
@@ -35,7 +41,17 @@ builder.Services.AddScoped<IImageMetadataExtractor, FileImageMetadataExtractor>(
 builder.Services.AddScoped<IImageClassifier, SimpleImageClassifier>();
 builder.Services.AddScoped<ImageImportService>();
 builder.Services.AddScoped(_ => new ManualReviewGroupingService(TimeSpan.FromMinutes(15), 0.40d));
+builder.Services.AddScoped(serviceProvider =>
+    new DetectionEstimator(serviceProvider.GetRequiredService<IOptions<AutoDetectOptions>>().Value));
+builder.Services.AddScoped<AutoDetectionService>();
+builder.Services.AddHttpClient<IVisionAutoDetector, HuggingFaceVisionDetector>((serviceProvider, client) =>
+{
+    var visionOptions = serviceProvider.GetRequiredService<IOptions<HuggingFaceVisionOptions>>().Value;
+    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(visionOptions.TimeoutSeconds, 5, 600));
+});
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 static string? FindNearestParentWithFile(string fileName)
 {
@@ -57,7 +73,18 @@ static string? FindNearestParentWithFile(string fileName)
 var app = builder.Build();
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    // The UI ships as plain html/js, so force revalidation instead of letting browsers guess a cache lifetime.
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue
+        {
+            NoCache = true,
+            MustRevalidate = true
+        };
+    }
+});
 
 using (var scope = app.Services.CreateScope())
 {
@@ -88,6 +115,19 @@ app.MapPost("/api/import/scan", async (ImageImportService importService, ImportS
 app.MapGet("/api/import/config", (IOptions<ImportOptions> options) =>
 {
     return Results.Ok(options.Value);
+});
+
+app.MapPost("/api/autodetect/run", async (AutoDetectionService autoDetectionService, AutoDetectRequest? request, CancellationToken ct) =>
+{
+    var result = await autoDetectionService.RunAsync(
+        request?.GroupKey,
+        request?.RedetectExisting ?? false,
+        request?.Limit,
+        ct);
+
+    return string.IsNullOrEmpty(result.ErrorMessage)
+        ? Results.Ok(result)
+        : Results.BadRequest(result);
 });
 
 app.MapGet("/api/events", async (FuelImportDbContext db, bool? needsReview) =>
@@ -149,7 +189,8 @@ app.MapGet("/api/vehicles/manage", async (FuelImportDbContext db) =>
             Active = v.Active,
             NoOdometer = v.NoOdometer,
             MaxGallonsPerFillUp = v.MaxGallonsPerFillUp,
-            MaxMpg = v.MaxMpg
+            MaxMpg = v.MaxMpg,
+            PhotoDescription = v.PhotoDescription
         })
         .ToListAsync());
 
@@ -187,7 +228,8 @@ app.MapPost("/api/vehicles", async (FuelImportDbContext db, VehicleUpsertRequest
         ExpectedTankGallonsMin = 0m,
         ExpectedTankGallonsMax = 100m,
         MaxGallonsPerFillUp = request.MaxGallonsPerFillUp,
-        MaxMpg = request.MaxMpg
+        MaxMpg = request.MaxMpg,
+        PhotoDescription = NormalizeOptional(request.PhotoDescription)
     };
 
     db.Vehicles.Add(vehicle);
@@ -200,7 +242,8 @@ app.MapPost("/api/vehicles", async (FuelImportDbContext db, VehicleUpsertRequest
         Active = vehicle.Active,
         NoOdometer = vehicle.NoOdometer,
         MaxGallonsPerFillUp = vehicle.MaxGallonsPerFillUp,
-        MaxMpg = vehicle.MaxMpg
+        MaxMpg = vehicle.MaxMpg,
+        PhotoDescription = vehicle.PhotoDescription
     });
 });
 
@@ -244,6 +287,7 @@ app.MapPut("/api/vehicles/{id:int}", async (FuelImportDbContext db, int id, Vehi
 
     vehicle.MaxGallonsPerFillUp = request.MaxGallonsPerFillUp;
     vehicle.MaxMpg = request.MaxMpg;
+    vehicle.PhotoDescription = NormalizeOptional(request.PhotoDescription);
 
     await db.SaveChangesAsync();
 
@@ -254,7 +298,8 @@ app.MapPut("/api/vehicles/{id:int}", async (FuelImportDbContext db, int id, Vehi
         Active = vehicle.Active,
         NoOdometer = vehicle.NoOdometer,
         MaxGallonsPerFillUp = vehicle.MaxGallonsPerFillUp,
-        MaxMpg = vehicle.MaxMpg
+        MaxMpg = vehicle.MaxMpg,
+        PhotoDescription = vehicle.PhotoDescription
     });
 });
 
@@ -460,7 +505,7 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     fuelEvent.DashSourceImageId = images.FirstOrDefault(image => image.ImageTypeCandidate == ImageType.Dashboard)?.SourceImageId;
     fuelEvent.OverallConfidence = 1.0m;
     fuelEvent.NeedsReview = false;
-    fuelEvent.ReviewStatus = ReviewStatus.Approved;
+    fuelEvent.ReviewStatus = ReviewStatus.Reviewed;
     fuelEvent.ReviewReason = null;
     fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
 
@@ -505,7 +550,7 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     {
         FuelEventId = fuelEvent.FuelEventId,
         ReviewSystem = "ManualEntryUi",
-        ReviewStatus = ReviewStatus.Approved,
+        ReviewStatus = ReviewStatus.Reviewed,
         ReviewerName = request.ReviewerName,
         ReviewerAtUtc = DateTime.UtcNow,
         OriginalValuesJson = original ?? "{}",
@@ -557,13 +602,13 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
 
     var reviewStatus = request.Approve switch
     {
-        true => ReviewStatus.Approved,
+        true => ReviewStatus.Reviewed,
         false => ReviewStatus.Rejected,
         null => ReviewStatus.Corrected
     };
 
     fuelEvent.ReviewStatus = reviewStatus;
-    fuelEvent.NeedsReview = reviewStatus != ReviewStatus.Approved;
+    fuelEvent.NeedsReview = reviewStatus != ReviewStatus.Reviewed;
     fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
 
     await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
@@ -700,7 +745,7 @@ app.MapGet("/api/events/export/csv", async (FuelImportDbContext db) =>
 {
     var rows = await db.FuelEvents
         .AsNoTracking()
-        .Where(e => e.ReviewStatus == ReviewStatus.Approved && !e.NeedsReview)
+        .Where(e => e.ReviewStatus == ReviewStatus.Reviewed && !e.NeedsReview)
         .OrderBy(e => e.EventTimeUtc)
         .Select(e => new
         {
@@ -799,6 +844,9 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
                 PricePerGallon = fuelEvent?.PricePerGallon,
                 Notes = fuelEvent?.Notes,
                 ReviewStatus = fuelEvent?.ReviewStatus,
+                EntrySource = fuelEvent?.EntrySource,
+                DetectionConfidence = fuelEvent?.EntrySource == EntrySource.AutoDetected ? fuelEvent.OverallConfidence : null,
+                ReviewReason = fuelEvent?.ReviewReason,
                 Images = orderedImages
                     .Select((image, index) => new ManualReviewImageResponse
                     {

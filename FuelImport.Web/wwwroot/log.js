@@ -104,6 +104,10 @@ function renderVehicleFilterOptions() {
     }
 }
 
+function formatReviewStatus(value) {
+    return value === 'AutoDetected' ? 'Auto detected' : (value ?? 'Pending');
+}
+
 function renderLog() {
     const rows = filteredEvents();
     if (!rows.length) {
@@ -125,7 +129,7 @@ function renderLog() {
             <td>${formatNumber(item.milesSincePrevious)}</td>
             <td>${formatNumber(item.calculatedMpg)}</td>
             <td>${formatCurrency(item.totalPrice)}${item.pricePerGallon != null ? ` ($${Number(item.pricePerGallon).toFixed(3)}/gal)` : ''}</td>
-            <td><span class="pill pill-review">${escapeHtml(item.reviewStatus)}</span></td>
+            <td><span class="pill pill-review">${escapeHtml(formatReviewStatus(item.reviewStatus))}</span></td>
             <td>${callouts}</td>
         </tr>
         `;

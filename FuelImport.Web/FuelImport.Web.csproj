@@ -1,15 +1,17 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>13755c4b-5587-492e-b079-5b1f16720908</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\FuelImport.Aws\FuelImport.Aws.csproj" />
     <ProjectReference Include="..\FuelImport.Core\FuelImport.Core.csproj" />
     <ProjectReference Include="..\FuelImport.Data\FuelImport.Data.csproj" />
+    <ProjectReference Include="..\FuelImport.HuggingFace\FuelImport.HuggingFace.csproj" />
   </ItemGroup>
 
   <ItemGroup>

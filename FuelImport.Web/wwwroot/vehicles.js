@@ -73,6 +73,10 @@ function renderVehicles() {
                                                 <input type="number" min="0" step="0.01" data-role="max-mpg" value="${vehicle.maxMpg ?? ''}" />
                                         </label>
                                 </div>
+                                <label>
+                                        Photo description (helps auto detect identify this vehicle)
+                                        <textarea rows="2" data-role="photo-description" style="width: 100%;">${escapeHtml(vehicle.photoDescription ?? '')}</textarea>
+                                </label>
         <div><span class="badge ${vehicle.active ? 'badge-active' : 'badge-inactive'}">${vehicle.active ? 'Active' : 'Inactive'}</span></div>
       </div>
       <button type="button" data-action="save">Save</button>
@@ -86,9 +90,11 @@ async function createVehicle() {
     const noOdometerToggle = document.getElementById('newVehicleNoOdometer');
     const maxGallonsInput = document.getElementById('newVehicleMaxGallons');
     const maxMpgInput = document.getElementById('newVehicleMaxMpg');
+    const photoDescriptionInput = document.getElementById('newVehiclePhotoDescription');
     const noOdometer = noOdometerToggle instanceof HTMLInputElement ? noOdometerToggle.checked : false;
     const maxGallonsPerFillUp = maxGallonsInput instanceof HTMLInputElement ? numberOrNull(maxGallonsInput.value) : null;
     const maxMpg = maxMpgInput instanceof HTMLInputElement ? numberOrNull(maxMpgInput.value) : null;
+    const photoDescription = photoDescriptionInput instanceof HTMLTextAreaElement ? photoDescriptionInput.value.trim() || null : null;
     if (!name) {
         renderStatus('Enter a vehicle name first.');
         return;
@@ -100,7 +106,7 @@ async function createVehicle() {
         const response = await fetch('/api/vehicles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, noOdometer, maxGallonsPerFillUp, maxMpg })
+            body: JSON.stringify({ name, noOdometer, maxGallonsPerFillUp, maxMpg, photoDescription })
         });
 
         if (!response.ok) {
@@ -117,6 +123,9 @@ async function createVehicle() {
         }
         if (maxMpgInput instanceof HTMLInputElement) {
             maxMpgInput.value = '';
+        }
+        if (photoDescriptionInput instanceof HTMLTextAreaElement) {
+            photoDescriptionInput.value = '';
         }
         hideAddVehicleForm();
         await loadVehicles();
@@ -154,14 +163,14 @@ if (cancelAddVehicleBtn instanceof HTMLElement) {
     cancelAddVehicleBtn.addEventListener('click', hideAddVehicleForm);
 }
 
-async function updateVehicle(vehicleId, name, active, noOdometer, maxGallonsPerFillUp, maxMpg) {
+async function updateVehicle(vehicleId, name, active, noOdometer, maxGallonsPerFillUp, maxMpg, photoDescription) {
     renderStatus('Saving vehicle…');
 
     try {
         const response = await fetch(`/api/vehicles/${vehicleId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, active, noOdometer, maxGallonsPerFillUp, maxMpg })
+            body: JSON.stringify({ name, active, noOdometer, maxGallonsPerFillUp, maxMpg, photoDescription })
         });
 
         if (!response.ok) {
@@ -202,21 +211,23 @@ vehicleManagerListEl.addEventListener('click', (event) => {
     const noOdometerInput = row.querySelector('[data-role="no-odometer"]');
     const maxGallonsInput = row.querySelector('[data-role="max-gallons"]');
     const maxMpgInput = row.querySelector('[data-role="max-mpg"]');
+    const photoDescriptionInput = row.querySelector('[data-role="photo-description"]');
     const name = input instanceof HTMLInputElement ? input.value.trim() : '';
     const noOdometer = noOdometerInput instanceof HTMLInputElement ? noOdometerInput.checked : false;
     const maxGallonsPerFillUp = maxGallonsInput instanceof HTMLInputElement ? numberOrNull(maxGallonsInput.value) : null;
     const maxMpg = maxMpgInput instanceof HTMLInputElement ? numberOrNull(maxMpgInput.value) : null;
+    const photoDescription = photoDescriptionInput instanceof HTMLTextAreaElement ? photoDescriptionInput.value.trim() || null : null;
     if (!vehicle) {
         return;
     }
 
     if (target.dataset.action === 'save') {
-        updateVehicle(vehicleId, name, vehicle.active, noOdometer, maxGallonsPerFillUp, maxMpg);
+        updateVehicle(vehicleId, name, vehicle.active, noOdometer, maxGallonsPerFillUp, maxMpg, photoDescription);
         return;
     }
 
     if (target.dataset.action === 'toggle') {
-        updateVehicle(vehicleId, name || vehicle.name, !vehicle.active, noOdometer, maxGallonsPerFillUp, maxMpg);
+        updateVehicle(vehicleId, name || vehicle.name, !vehicle.active, noOdometer, maxGallonsPerFillUp, maxMpg, photoDescription);
     }
 });
 
