@@ -213,9 +213,18 @@ public class AutoDetectionService(
         await PersistAsync(group, orderedImages, existingEvent, groupResult, pumpTotals.SourceCount, cancellationToken);
 
         groupResult.Succeeded = true;
-        groupResult.Message = pumpTotals.SourceCount > 1
-            ? $"Auto-detected and queued for review (totals summed from {pumpTotals.SourceCount} pump photos)."
-            : "Auto-detected and queued for review.";
+        var notes = new List<string> { "Auto-detected and queued for review." };
+        if (pumpTotals.SourceCount > 1)
+        {
+            notes[0] = $"Auto-detected and queued for review (totals summed from {pumpTotals.SourceCount} pump photos).";
+        }
+
+        if (groupResult.LeftExistingValuesAlone)
+        {
+            notes.Add("Values you already entered were left alone.");
+        }
+
+        groupResult.Message = string.Join(" ", notes);
         return groupResult;
     }
 
@@ -381,10 +390,29 @@ public class AutoDetectionService(
     {
         var fuelEvent = existingEvent ?? new FuelEvent { CreatedAtUtc = DateTime.UtcNow };
 
+        // Only a value this service produced may be replaced; anything a person entered stays untouched.
+        var mayReplaceExisting = existingEvent is null
+            || (existingEvent.EntrySource == EntrySource.AutoDetected && existingEvent.ReviewStatus == ReviewStatus.AutoDetected);
+
+        var previousGallons = fuelEvent.Gallons;
+        var previousTotalPrice = fuelEvent.TotalPrice;
+        var previousOdometer = fuelEvent.Odometer;
+        var previousVehicleId = fuelEvent.VehicleId;
+
         fuelEvent.VehicleId ??= groupResult.VehicleId;
-        fuelEvent.Gallons = groupResult.Gallons ?? fuelEvent.Gallons;
-        fuelEvent.TotalPrice = groupResult.TotalPrice ?? fuelEvent.TotalPrice;
-        fuelEvent.Odometer = groupResult.Odometer ?? fuelEvent.Odometer;
+        fuelEvent.Gallons = Merge(fuelEvent.Gallons, groupResult.Gallons, mayReplaceExisting);
+        fuelEvent.TotalPrice = Merge(fuelEvent.TotalPrice, groupResult.TotalPrice, mayReplaceExisting);
+        fuelEvent.Odometer = Merge(fuelEvent.Odometer, groupResult.Odometer, mayReplaceExisting);
+
+        var changedAnything = fuelEvent.Gallons != previousGallons
+            || fuelEvent.TotalPrice != previousTotalPrice
+            || fuelEvent.Odometer != previousOdometer
+            || fuelEvent.VehicleId != previousVehicleId;
+
+        groupResult.Gallons = fuelEvent.Gallons;
+        groupResult.TotalPrice = fuelEvent.TotalPrice;
+        groupResult.Odometer = fuelEvent.Odometer;
+        groupResult.LeftExistingValuesAlone = !mayReplaceExisting;
         fuelEvent.PricePerGallon = fuelEvent.Gallons is decimal g && g > 0m && fuelEvent.TotalPrice is decimal p
             ? Math.Round(p / g, 3, MidpointRounding.AwayFromZero)
             : fuelEvent.PricePerGallon;
@@ -397,9 +425,15 @@ public class AutoDetectionService(
         fuelEvent.DashSourceImageId = groupResult.Images.FirstOrDefault(detection => detection.ImageType == ImageType.Dashboard)?.SourceImageId
             ?? fuelEvent.DashSourceImageId;
         fuelEvent.OverallConfidence = groupResult.Confidence;
-        fuelEvent.NeedsReview = true;
-        fuelEvent.ReviewStatus = ReviewStatus.AutoDetected;
-        fuelEvent.EntrySource = EntrySource.AutoDetected;
+
+        // A group that a human already signed off on only reopens if detection actually filled a gap.
+        if (changedAnything || existingEvent is null || existingEvent.ReviewStatus != ReviewStatus.Reviewed)
+        {
+            fuelEvent.NeedsReview = true;
+            fuelEvent.ReviewStatus = ReviewStatus.AutoDetected;
+            fuelEvent.EntrySource = existingEvent?.EntrySource ?? EntrySource.AutoDetected;
+        }
+
         fuelEvent.DetectedAtUtc = DateTime.UtcNow;
         fuelEvent.DetectionDetailsJson = JsonSerializer.Serialize(groupResult.Images);
         fuelEvent.ReviewReason = BuildReviewReason(groupResult, pumpSourceCount);
@@ -457,6 +491,11 @@ public class AutoDetectionService(
             parts.Add($"Totals summed from {pumpSourceCount} pump photos.");
         }
 
+        if (groupResult.LeftExistingValuesAlone)
+        {
+            parts.Add("Existing entered values were kept; only blanks were filled.");
+        }
+
         parts.AddRange(groupResult.Images.SelectMany(detection => detection.Warnings).Distinct());
 
         var reason = parts.Count > 0
@@ -465,6 +504,12 @@ public class AutoDetectionService(
 
         return reason.Length > 512 ? reason[..512] : reason;
     }
+
+    private static decimal? Merge(decimal? existing, decimal? detected, bool mayReplaceExisting) =>
+        existing is null || mayReplaceExisting ? detected ?? existing : existing;
+
+    private static int? Merge(int? existing, int? detected, bool mayReplaceExisting) =>
+        existing is null || mayReplaceExisting ? detected ?? existing : existing;
 
     private static double? Average(IEnumerable<double?> values)
     {

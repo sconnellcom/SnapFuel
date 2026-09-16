@@ -37,6 +37,9 @@ const state = {
     queueFilter: 'all',
     pendingSnapshotGroupKeys: new Set(),
     autoSnapshotGroupKeys: new Set(),
+    autoDetectStatusByGroup: {},
+    autoDetectQueue: [],
+    autoDetectWorkerActive: false,
     magnificationIndex: 1,
     lastSavedReviewerName: initialReviewerName
 };
@@ -283,25 +286,35 @@ function getDefaultImageId(group) {
     return orderedImages[0]?.sourceImageId ?? null;
 }
 
+/// Advances to the next group still outstanding under the filter the user is currently looking at.
 function getNextPendingGroupKey(currentGroupKey) {
-    const currentIndex = state.groups.findIndex((group) => group.groupKey === currentGroupKey);
+    const visibleGroups = getVisibleGroups();
+    const currentIndex = visibleGroups.findIndex((group) => group.groupKey === currentGroupKey);
     if (currentIndex === -1) {
-        return null;
+        return visibleGroups.find((group) => isOutstandingForFilter(group))?.groupKey ?? null;
     }
 
-    for (let index = currentIndex + 1; index < state.groups.length; index++) {
-        if (state.groups[index].fuelEventId == null) {
-            return state.groups[index].groupKey;
+    for (let index = currentIndex + 1; index < visibleGroups.length; index++) {
+        if (isOutstandingForFilter(visibleGroups[index])) {
+            return visibleGroups[index].groupKey;
         }
     }
 
     for (let index = 0; index < currentIndex; index++) {
-        if (state.groups[index].fuelEventId == null) {
-            return state.groups[index].groupKey;
+        if (isOutstandingForFilter(visibleGroups[index])) {
+            return visibleGroups[index].groupKey;
         }
     }
 
     return currentGroupKey;
+}
+
+function isOutstandingForFilter(group) {
+    if (state.queueFilter === 'auto') {
+        return isAwaitingApproval(group);
+    }
+
+    return group.fuelEventId == null;
 }
 
 function getDraft(groupKey) {
@@ -531,6 +544,49 @@ function renderVehicleOptions() {
     vehicleSelect.value = currentValue;
 }
 
+function getGroupTimestamp(group) {
+    const orderedImages = getOrderedImages(group);
+    return orderedImages[0]?.capturedAtUtc ?? group.startedAtUtc ?? null;
+}
+
+function getGroupDayKey(group) {
+    const timestamp = getGroupTimestamp(group);
+    if (!timestamp) {
+        return 'unknown';
+    }
+
+    const date = new Date(timestamp);
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatDayHeading(group) {
+    const timestamp = getGroupTimestamp(group);
+    if (!timestamp) {
+        return 'Unknown date';
+    }
+
+    const date = new Date(timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    const sameDay = (left, right) => left.toDateString() === right.toDateString();
+    if (sameDay(date, today)) {
+        return 'Today';
+    }
+
+    if (sameDay(date, yesterday)) {
+        return 'Yesterday';
+    }
+
+    return date.toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric'
+    });
+}
+
 function renderQueue() {
     const reviewedCount = state.groups.filter((group) => group.fuelEventId != null && !isAwaitingApproval(group)).length;
     const autoCount = state.groups.filter((group) => isAwaitingApproval(group)).length;
@@ -544,7 +600,20 @@ function renderQueue() {
         return;
     }
 
+    const groupsPerDay = visibleGroups.reduce((counts, group) => {
+        const dayKey = getGroupDayKey(group);
+        counts[dayKey] = (counts[dayKey] ?? 0) + 1;
+        return counts;
+    }, {});
+
+    let lastDayKey = null;
+
     groupListEl.innerHTML = visibleGroups.map((group) => {
+        const dayKey = getGroupDayKey(group);
+        const dayHeader = dayKey === lastDayKey
+            ? ''
+            : `<div class="queue-day"><span>${escapeHtml(formatDayHeading(group))}</span><span class="queue-day-count">${groupsPerDay[dayKey]} stop${groupsPerDay[dayKey] === 1 ? '' : 's'}</span></div>`;
+        lastDayKey = dayKey;
         const formState = getGroupFormState(group);
         const orderedImages = getOrderedImages(group);
         const earliestPhotoTimestamp = orderedImages[0]?.capturedAtUtc ?? group.startedAtUtc;
@@ -563,14 +632,20 @@ function renderQueue() {
         const milesClass = spreadMiles > 0.1 ? 'queue-spread-alert' : '';
         const showGreenCheck = hasQueueGreenCheck(group);
         const badge = getGroupBadge(group);
+        const autoStatus = getAutoDetectStatus(group.groupKey);
+        const autoStatusMarkup = autoStatus
+            ? `<div class="queue-meta queue-detecting"><span class="spinner"></span>${autoStatus === 'running' ? 'Detecting…' : 'Queued for auto detect'}</div>`
+            : '';
 
         return `
+    ${dayHeader}
     <div class="queue-item ${group.groupKey === state.selectedGroupKey ? 'active' : ''}" data-group-key="${group.groupKey}">
       <div class="queue-title">
                 <strong class="queue-title-main">${showGreenCheck ? '<span class="queue-check">✓</span>' : ''}<span>${escapeHtml(title)}</span></strong>
         <span class="badge ${badge.className}">${badge.label}</span>
       </div>
                         <div class="queue-meta">${formatDate(earliestPhotoTimestamp)}</div>
+            ${autoStatusMarkup}
             <div class="queue-meta"><span class="${imageCountClass}">${group.images.length} image${group.images.length === 1 ? '' : 's'}</span> - <span class="${minutesClass}">${formatMinutesSpread(group.startedAtUtc, group.endedAtUtc)}</span>, <span class="${milesClass}">${spreadDistance}</span></div>
             <div class="queue-meta">Dollars: ${dollarsText ?? 'not set'}${ppg != null ? ` (${escapeHtml(`$${ppg.toFixed(3)}`)})` : ''}</div>
             ${formState.odometer != null ? `<div class="queue-meta">Odometer: ${formState.odometer}</div>` : ''}
@@ -598,6 +673,22 @@ function renderQueue() {
             await mergeIntoSelected(button.dataset.sourceGroupKey);
         });
     });
+
+    scrollSelectedQueueItemIntoView();
+}
+
+/// Keeps the active card one slot down from the top so the previous group stays visible for context.
+function scrollSelectedQueueItemIntoView() {
+    const selected = groupListEl.querySelector('.queue-item.active');
+    if (!(selected instanceof HTMLElement)) {
+        return;
+    }
+
+    const previous = selected.previousElementSibling;
+    const target = previous instanceof HTMLElement ? previous : selected;
+    const offset = target.offsetTop - groupListEl.offsetTop;
+
+    groupListEl.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
 }
 
 function renderWorkspace() {
@@ -734,6 +825,7 @@ function renderWorkspace() {
     document.getElementById('reviewerName').value = formState.reviewerName ?? (state.lastSavedReviewerName || '');
     groupMetaEl.textContent = group.fuelEventId ? `Editing event #${group.fuelEventId}` : `${group.images.length} linked image${group.images.length === 1 ? '' : 's'}`;
     renderDetectionCallout(group);
+    updateAutoDetectGroupButton();
     renderPricePerGallon(group.pricePerGallon);
 }
 
@@ -867,6 +959,11 @@ function updateLocalGroupFromPayload(groupKey, payload, savedEvent) {
 async function persistCurrentGroup(options = {}) {
     const group = activeGroup();
     if (!group) {
+        return false;
+    }
+
+    if (getAutoDetectStatus(group.groupKey)) {
+        renderStatus('This group is being auto detected. It will be saveable once detection finishes.');
         return false;
     }
 
@@ -1144,29 +1241,144 @@ if (autoDetectButton) {
 }
 
 if (autoDetectGroupButton) {
-    autoDetectGroupButton.addEventListener('click', async () => {
+    autoDetectGroupButton.addEventListener('click', () => {
         const group = activeGroup();
         if (!group) {
             renderStatus('Select a group first.');
             return;
         }
 
-        const groupKey = group.groupKey;
-        const result = await runAutoDetect(
-            { groupKey, redetectExisting: true },
-            autoDetectGroupButton,
-            'Auto detecting this group…',
-            groupKey);
+        enqueueAutoDetect(group.groupKey);
+    });
+}
 
-        if (!result) {
-            return;
+function getAutoDetectStatus(groupKey) {
+    return groupKey ? state.autoDetectStatusByGroup[groupKey] ?? null : null;
+}
+
+function enqueueAutoDetect(groupKey) {
+    if (!groupKey || getAutoDetectStatus(groupKey)) {
+        renderStatus('That group is already in the auto detect queue.');
+        return;
+    }
+
+    captureFormDraft();
+    state.autoDetectStatusByGroup[groupKey] = 'queued';
+    state.autoDetectQueue.push(groupKey);
+
+    renderQueue();
+    updateAutoDetectGroupButton();
+    renderStatus(state.autoDetectQueue.length > 1 || state.autoDetectWorkerActive
+        ? `Queued for auto detect (${state.autoDetectQueue.length} waiting).`
+        : 'Auto detecting this group…');
+
+    void processAutoDetectQueue();
+}
+
+async function processAutoDetectQueue() {
+    if (state.autoDetectWorkerActive) {
+        return;
+    }
+
+    state.autoDetectWorkerActive = true;
+
+    try {
+        while (state.autoDetectQueue.length > 0) {
+            const groupKey = state.autoDetectQueue.shift();
+            state.autoDetectStatusByGroup[groupKey] = 'running';
+            renderQueue();
+            updateAutoDetectGroupButton();
+
+            try {
+                await detectSingleGroup(groupKey);
+            } finally {
+                delete state.autoDetectStatusByGroup[groupKey];
+                renderQueue();
+                updateAutoDetectGroupButton();
+            }
         }
+    } finally {
+        state.autoDetectWorkerActive = false;
+    }
+}
+
+async function detectSingleGroup(groupKey) {
+    try {
+        const response = await fetch('/api/autodetect/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ groupKey, redetectExisting: true })
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result?.errorMessage || result?.message || `HTTP ${response.status}`);
+        }
+
+        delete state.drafts[groupKey];
+        await refreshGroupsQuietly(groupKey);
 
         const detail = result.groups?.[0];
         renderStatus(detail?.message
             ? `Auto detect: ${detail.message}`
-            : 'Auto detect found nothing to update for this group.');
-    });
+            : 'Auto detect found nothing to update for that group.');
+    } catch (error) {
+        console.error(error);
+        renderStatus(`Auto detect failed: ${error.message}`);
+    }
+}
+
+/// Refreshes queue data without stealing the selection or clobbering a form the user is filling in.
+async function refreshGroupsQuietly(detectedGroupKey) {
+    const response = await fetch('/api/manual/groups');
+    if (!response.ok) {
+        return;
+    }
+
+    const groups = await response.json();
+    const selectedGroupKey = state.selectedGroupKey;
+    state.groups = groups;
+
+    groups
+        .filter((group) => isAwaitingApproval(group))
+        .forEach((group) => state.autoSnapshotGroupKeys.add(group.groupKey));
+
+    renderQueue();
+
+    if (detectedGroupKey === selectedGroupKey) {
+        const stillPresent = groups.some((group) => group.groupKey === selectedGroupKey);
+        if (!stillPresent) {
+            state.selectedGroupKey = getVisibleGroups()[0]?.groupKey ?? groups[0]?.groupKey ?? null;
+            state.activeImageId = getDefaultImageId(activeGroup());
+        }
+
+        renderWorkspace();
+    }
+}
+
+function updateAutoDetectGroupButton() {
+    if (!(autoDetectGroupButton instanceof HTMLButtonElement)) {
+        return;
+    }
+
+    const status = getAutoDetectStatus(state.selectedGroupKey);
+    if (status === 'running') {
+        autoDetectGroupButton.disabled = true;
+        autoDetectGroupButton.setAttribute('aria-busy', 'true');
+        autoDetectGroupButton.innerHTML = '<span class="spinner"></span>Detecting…';
+        return;
+    }
+
+    if (status === 'queued') {
+        autoDetectGroupButton.disabled = true;
+        autoDetectGroupButton.setAttribute('aria-busy', 'true');
+        autoDetectGroupButton.innerHTML = '<span class="spinner"></span>Queued…';
+        return;
+    }
+
+    autoDetectGroupButton.disabled = false;
+    autoDetectGroupButton.removeAttribute('aria-busy');
+    autoDetectGroupButton.textContent = 'Auto detect this group';
 }
 
 function setButtonBusy(button, busyLabel) {
@@ -1186,17 +1398,8 @@ function setButtonBusy(button, busyLabel) {
     };
 }
 
-function setAutoDetectEnabled(enabled) {
-    [autoDetectButton, autoDetectGroupButton, saveButton, scanButton].forEach((button) => {
-        if (button instanceof HTMLButtonElement && !button.hasAttribute('aria-busy')) {
-            button.disabled = !enabled;
-        }
-    });
-}
-
 async function runAutoDetect(body, button, statusMessage, preferredGroupKey) {
     const restoreButton = setButtonBusy(button, 'Detecting…');
-    setAutoDetectEnabled(false);
 
     captureFormDraft();
     renderStatus(statusMessage);

@@ -48,6 +48,7 @@ public class GroupDetectionResult
     public int? Odometer { get; set; }
     public int? VehicleId { get; set; }
     public bool WasSplit { get; set; }
+    public bool LeftExistingValuesAlone { get; set; }
     public decimal Confidence { get; set; }
     public List<ImageDetection> Images { get; set; } = [];
 }

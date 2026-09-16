@@ -248,6 +248,37 @@
       transition: border-color 150ms ease, transform 150ms ease, background 150ms ease;
     }
 
+    .queue-day {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 4px 0 -2px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #f2f8f7;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      box-shadow: 0 4px 12px rgba(36, 85, 90, 0.25);
+    }
+
+    .queue-day:first-child {
+      margin-top: 0;
+    }
+
+    .queue-day-count {
+      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0;
+      opacity: 0.85;
+    }
+
     .queue-actions {
       display: flex;
       justify-content: flex-end;
@@ -263,11 +294,20 @@
       font-size: 0.82rem;
     }
 
-    .queue-item:hover,
+    .queue-item:hover {
+      border-color: rgba(36, 85, 90, 0.35);
+      background: rgba(215, 231, 229, 0.55);
+    }
+
     .queue-item.active {
-      border-color: rgba(164, 74, 63, 0.35);
+      border-color: var(--primary);
+      border-left: 5px solid var(--primary);
       background: var(--panel-strong);
-      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(164, 74, 63, 0.18);
+    }
+
+    .queue-item.active:hover {
+      background: var(--panel-strong);
     }
 
     .badge {
@@ -306,6 +346,14 @@
       border: 1px solid #cec2ef;
       color: #4b3c8c;
       font-size: 0.82rem;
+    }
+
+    .queue-detecting {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      color: #4b3c8c;
+      font-weight: 700;
     }
 
     .queue-title {
@@ -742,7 +790,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=2"></script>
+  <script src="/app.js?v=5"></script>
 </body>
 
 </html>
