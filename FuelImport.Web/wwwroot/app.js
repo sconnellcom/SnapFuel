@@ -715,14 +715,34 @@ function handleHeroMouseMove(event) {
     lens.style.left = `${mouseX - lensSize / 2}px`;
     lens.style.top = `${mouseY - lensSize / 2}px`;
 
-    let relX = imgRect.width > 0 ? (event.clientX - imgRect.left) / imgRect.width : 0.5;
-    let relY = imgRect.height > 0 ? (event.clientY - imgRect.top) / imgRect.height : 0.5;
+    const naturalWidth = imageTag.naturalWidth || imgRect.width;
+    const naturalHeight = imageTag.naturalHeight || imgRect.height;
+    const naturalRatio = naturalWidth / (naturalHeight || 1);
+    const boxRatio = imgRect.width / (imgRect.height || 1);
+
+    let renderedWidth = imgRect.width;
+    let renderedHeight = imgRect.height;
+    let renderedLeft = imgRect.left;
+    let renderedTop = imgRect.top;
+
+    if (boxRatio > naturalRatio) {
+        renderedHeight = imgRect.height;
+        renderedWidth = imgRect.height * naturalRatio;
+        renderedLeft = imgRect.left + (imgRect.width - renderedWidth) / 2;
+    } else {
+        renderedWidth = imgRect.width;
+        renderedHeight = imgRect.width / naturalRatio;
+        renderedTop = imgRect.top + (imgRect.height - renderedHeight) / 2;
+    }
+
+    let relX = renderedWidth > 0 ? (event.clientX - renderedLeft) / renderedWidth : 0.5;
+    let relY = renderedHeight > 0 ? (event.clientY - renderedTop) / renderedHeight : 0.5;
     relX = Math.max(0, Math.min(1, relX));
     relY = Math.max(0, Math.min(1, relY));
 
     const zoom = MAGNIFICATION_LEVELS[state.magnificationIndex];
-    const bgWidth = imgRect.width * zoom;
-    const bgHeight = imgRect.height * zoom;
+    const bgWidth = renderedWidth * zoom;
+    const bgHeight = renderedHeight * zoom;
     const bgX = -(relX * bgWidth - lensSize / 2);
     const bgY = -(relY * bgHeight - lensSize / 2);
 
