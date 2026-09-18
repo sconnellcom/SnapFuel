@@ -3,7 +3,7 @@ const totalEventsEl = document.getElementById('totalEvents');
 const eventsWithAnomaliesEl = document.getElementById('eventsWithAnomalies');
 const healthRatioEl = document.getElementById('healthRatio');
 const vehicleReportBodyEl = document.getElementById('vehicleReportBody');
-const vehicleTrendSelectEl = document.getElementById('vehicleTrendSelect');
+const trendVehicleLabelEl = document.getElementById('trendVehicleLabel');
 const trendChartsEl = document.getElementById('trendCharts');
 const refreshButton = document.getElementById('refreshButton');
 
@@ -91,11 +91,11 @@ function renderReport(payload) {
 
     vehicleReportBodyEl.innerHTML = rows.map((vehicle) => {
         const callout = vehicle.eventsWithAnomalies > 0
-            ? `<span class="warn">${vehicle.eventsWithAnomalies} callout${vehicle.eventsWithAnomalies === 1 ? '' : 's'}</span>`
+            ? `<button type="button" class="warn warn-link" data-action="view-callouts" data-vehicle-id="${vehicle.vehicleId}">${vehicle.eventsWithAnomalies} callout${vehicle.eventsWithAnomalies === 1 ? '' : 's'}</button>`
             : 'None';
 
         return `
-        <tr>
+        <tr class="vehicle-row ${vehicle.vehicleId === state.selectedVehicleId ? 'active' : ''}" data-vehicle-id="${vehicle.vehicleId}">
             <td>${escapeHtml(vehicle.vehicleName)}</td>
             <td>${escapeHtml(formatThresholds(vehicle))}</td>
             <td>${vehicle.totalEvents ?? 0}</td>
@@ -107,6 +107,21 @@ function renderReport(payload) {
         </tr>
         `;
     }).join('');
+
+    vehicleReportBodyEl.querySelectorAll('.vehicle-row').forEach((row) => {
+        row.addEventListener('click', () => {
+            state.selectedVehicleId = Number(row.dataset.vehicleId);
+            renderReport(state.report);
+            renderTrendCharts();
+        });
+    });
+
+    vehicleReportBodyEl.querySelectorAll('[data-action="view-callouts"]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            window.location.href = `/log.html?vehicleId=${button.dataset.vehicleId}&onlyAnomalies=true`;
+        });
+    });
 }
 
 function parseEventTime(eventItem) {
@@ -124,13 +139,8 @@ function getVehicleRows() {
 }
 
 function renderVehicleTrendOptions() {
-    if (!(vehicleTrendSelectEl instanceof HTMLSelectElement)) {
-        return;
-    }
-
     const vehicles = getVehicleRows();
     if (!vehicles.length) {
-        vehicleTrendSelectEl.innerHTML = '<option value="">No vehicles</option>';
         state.selectedVehicleId = null;
         return;
     }
@@ -140,10 +150,12 @@ function renderVehicleTrendOptions() {
         state.selectedVehicleId = vehicleWithEvents?.vehicleId ?? vehicles[0].vehicleId;
     }
 
-    vehicleTrendSelectEl.innerHTML = vehicles
-        .map((vehicle) => `<option value="${vehicle.vehicleId}">${escapeHtml(vehicle.vehicleName)} (${vehicle.totalEvents ?? 0})</option>`)
-        .join('');
-    vehicleTrendSelectEl.value = String(state.selectedVehicleId);
+    if (trendVehicleLabelEl instanceof HTMLElement) {
+        const selected = vehicles.find((vehicle) => vehicle.vehicleId === state.selectedVehicleId);
+        trendVehicleLabelEl.textContent = selected
+            ? `Trends for ${selected.vehicleName}`
+            : 'Click a vehicle above to see its trends.';
+    }
 }
 
 function getSelectedVehicleEvents() {
@@ -289,8 +301,8 @@ async function loadReport() {
         state.report = await reportResponse.json();
         state.eventLog = await logResponse.json();
 
-        renderReport(state.report);
         renderVehicleTrendOptions();
+        renderReport(state.report);
         renderTrendCharts();
         renderStatus('Report loaded.');
     } catch (error) {
@@ -304,11 +316,5 @@ async function loadReport() {
 }
 
 refreshButton.addEventListener('click', loadReport);
-if (vehicleTrendSelectEl instanceof HTMLSelectElement) {
-    vehicleTrendSelectEl.addEventListener('change', () => {
-        state.selectedVehicleId = Number(vehicleTrendSelectEl.value);
-        renderTrendCharts();
-    });
-}
 
 loadReport();

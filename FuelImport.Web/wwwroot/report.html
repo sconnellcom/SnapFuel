@@ -318,6 +318,28 @@
             font-size: 0.74rem;
         }
 
+        .warn-link {
+            cursor: pointer;
+            border: none;
+            text-decoration: underline;
+        }
+
+        .vehicle-row {
+            cursor: pointer;
+        }
+
+        .vehicle-row:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .vehicle-row.active {
+            background: rgba(157, 59, 46, 0.1);
+        }
+
+        .vehicle-row.active td:first-child {
+            font-weight: 800;
+        }
+
         @media (max-width: 920px) {
             .cards {
                 grid-template-columns: 1fr;
@@ -375,14 +397,6 @@
             </article>
         </section>
 
-        <section class="panel charts-panel">
-            <div class="trend-toolbar">
-                <label for="vehicleTrendSelect">Trend Vehicle</label>
-                <select id="vehicleTrendSelect"></select>
-            </div>
-            <div id="trendCharts" class="charts-grid"></div>
-        </section>
-
         <section class="panel">
             <table>
                 <thead>
@@ -399,6 +413,13 @@
                 </thead>
                 <tbody id="vehicleReportBody"></tbody>
             </table>
+        </section>
+
+        <section class="panel charts-panel">
+            <div class="trend-toolbar">
+                <span id="trendVehicleLabel">Click a vehicle above to see its trends.</span>
+            </div>
+            <div id="trendCharts" class="charts-grid"></div>
         </section>
     </div>
 

@@ -23,6 +23,8 @@ public class FuelEvent
     public bool NeedsReview { get; set; }
     public ReviewStatus ReviewStatus { get; set; } = ReviewStatus.Pending;
     public string? ReviewReason { get; set; }
+    /// <summary>True once a human has confirmed the callout(s) on this event are not a data problem.</summary>
+    public bool AnomalyAcknowledged { get; set; }
     public EntrySource EntrySource { get; set; } = EntrySource.Manual;
     public string? DetectionDetailsJson { get; set; }
     public DateTime? DetectedAtUtc { get; set; }

@@ -199,6 +199,26 @@
             background: #f1e6d5;
         }
 
+        .pill-approved {
+            background: #e2f0e6;
+            color: #2f7d4a;
+            border-color: rgba(47, 125, 74, 0.3);
+        }
+
+        .row-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            align-items: flex-start;
+        }
+
+        .row-actions button,
+        .row-actions a {
+            min-height: unset;
+            padding: 5px 10px;
+            font-size: 0.78rem;
+        }
+
         .warn {
             color: var(--warn);
             font-weight: 700;
@@ -272,6 +292,7 @@
                         <th>Price</th>
                         <th>Status</th>
                         <th>Callouts</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="logBody"></tbody>

@@ -199,24 +199,42 @@
       display: flex;
       background: rgba(255, 253, 248, 0.85);
       border: 1px solid var(--border);
-      border-radius: 999px;
+      border-radius: 14px;
       padding: 3px;
       gap: 4px;
     }
 
     .queue-filter-btn {
       flex: 1;
-      padding: 7px 12px;
+      padding: 7px 8px;
       min-height: unset;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 700;
-      border-radius: 999px;
+      border-radius: 10px;
       background: transparent;
       color: var(--muted);
       border: none;
       box-shadow: none;
       cursor: pointer;
+      white-space: nowrap;
       transition: all 150ms ease;
+    }
+
+    .queue-filter-completeness {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .queue-filter-status {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .queue-display-count {
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-align: center;
     }
 
     .queue-filter-btn:hover {
@@ -266,6 +284,16 @@
       letter-spacing: 0.02em;
       text-transform: uppercase;
       box-shadow: 0 4px 12px rgba(36, 85, 90, 0.25);
+      cursor: pointer;
+    }
+
+    .queue-day:hover {
+      filter: brightness(1.1);
+    }
+
+    .queue-day.active {
+      outline: 2px solid var(--primary);
+      outline-offset: 1px;
     }
 
     .queue-day:first-child {
@@ -613,6 +641,8 @@
       top: 16px;
       right: 16px;
       z-index: 2;
+      display: flex;
+      gap: 6px;
     }
 
     .thumb-check {
@@ -633,6 +663,71 @@
       width: 16px;
       height: 16px;
       cursor: pointer;
+    }
+
+    .thumb-delete {
+      position: absolute;
+      right: 0;
+      bottom: -192px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: rgba(255, 253, 248, 0.9);
+      border: 1px solid var(--border);
+      box-shadow: 0 6px 16px rgba(47, 36, 28, 0.14);
+      cursor: pointer;
+      color: #a5271e;
+      font-weight: 800;
+      font-size: 0.9rem;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .thumb-delete:hover {
+      background: #ffdedb;
+    }
+
+    .thumb-ocr {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 10px;
+      background: rgba(36, 85, 90, 0.08);
+      color: var(--accent);
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
+    .thumb-ocr-warning {
+      color: #a5271e;
+      font-weight: 700;
+    }
+
+    .callout-panel {
+      margin-top: 6px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f9e1d9;
+      border: 1px solid rgba(165, 63, 42, 0.3);
+      color: #a5271e;
+    }
+
+    .callout-panel.acknowledged {
+      background: #eef3ee;
+      border-color: rgba(47, 125, 74, 0.3);
+      color: #2f7d4a;
+    }
+
+    .callout-panel ul {
+      margin: 4px 0 8px;
+      padding-left: 18px;
+    }
+
+    .callout-panel-header {
+      font-weight: 800;
+      font-size: 0.9rem;
     }
 
     .viewer-actions {
@@ -703,13 +798,17 @@
       <aside class="panel queue-panel">
         <div class="queue-title">
           <strong>Review Queue</strong>
-          <span id="queueSummary" class="queue-meta"></span>
         </div>
-        <div class="queue-filter-group" role="group" aria-label="Filter review queue">
+        <div class="queue-filter-group queue-filter-completeness" role="group" aria-label="Filter review queue completeness">
+          <button type="button" class="queue-filter-btn" data-filter="incomplete">Incomplete only</button>
+        </div>
+        <div class="queue-filter-group queue-filter-status" role="group" aria-label="Filter review queue status">
           <button type="button" class="queue-filter-btn active" data-filter="all">All</button>
           <button type="button" class="queue-filter-btn" data-filter="pending">Pending</button>
           <button type="button" class="queue-filter-btn" data-filter="auto">Auto detected</button>
+          <button type="button" class="queue-filter-btn" data-filter="reviewed">Reviewed</button>
         </div>
+        <div id="queueDisplayCount" class="queue-display-count"></div>
         <div id="groupList" class="queue-list"></div>
       </aside>
 
@@ -774,6 +873,8 @@
 
             <div id="detectionCallout" class="detection-callout" style="display: none;"></div>
 
+            <div id="calloutsPanel" class="callout-panel" style="display: none;"></div>
+
             <label>
               Reviewer name
               <input id="reviewerName" name="reviewerName" type="text" />
@@ -790,7 +891,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=5"></script>
+  <script src="/app.js?v=6"></script>
 </body>
 
 </html>

@@ -503,10 +503,14 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     fuelEvent.Longitude = Average(images.Select(image => image.Longitude));
     fuelEvent.PumpSourceImageId = images.FirstOrDefault(image => image.ImageTypeCandidate == ImageType.Pump)?.SourceImageId;
     fuelEvent.DashSourceImageId = images.FirstOrDefault(image => image.ImageTypeCandidate == ImageType.Dashboard)?.SourceImageId;
-    fuelEvent.OverallConfidence = 1.0m;
-    fuelEvent.NeedsReview = false;
-    fuelEvent.ReviewStatus = ReviewStatus.Reviewed;
-    fuelEvent.ReviewReason = null;
+    if (request.MarkReviewed)
+    {
+        fuelEvent.OverallConfidence = 1.0m;
+        fuelEvent.NeedsReview = false;
+        fuelEvent.ReviewStatus = ReviewStatus.Reviewed;
+        fuelEvent.ReviewReason = null;
+    }
+
     fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
 
     if (fuelEvent.FuelEventId == 0)
@@ -546,17 +550,20 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
         image.ProcessingStatus = ProcessingStatus.Completed;
     }
 
-    db.HumanReviews.Add(new HumanReview
+    if (request.MarkReviewed)
     {
-        FuelEventId = fuelEvent.FuelEventId,
-        ReviewSystem = "ManualEntryUi",
-        ReviewStatus = ReviewStatus.Reviewed,
-        ReviewerName = request.ReviewerName,
-        ReviewerAtUtc = DateTime.UtcNow,
-        OriginalValuesJson = original ?? "{}",
-        CorrectedValuesJson = JsonSerializer.Serialize(request),
-        Notes = NormalizeOptional(request.Notes)
-    });
+        db.HumanReviews.Add(new HumanReview
+        {
+            FuelEventId = fuelEvent.FuelEventId,
+            ReviewSystem = "ManualEntryUi",
+            ReviewStatus = ReviewStatus.Reviewed,
+            ReviewerName = request.ReviewerName,
+            ReviewerAtUtc = DateTime.UtcNow,
+            OriginalValuesJson = original ?? "{}",
+            CorrectedValuesJson = JsonSerializer.Serialize(request),
+            Notes = NormalizeOptional(request.Notes)
+        });
+    }
 
     await db.SaveChangesAsync();
     return Results.Ok(fuelEvent);
@@ -571,6 +578,52 @@ app.MapGet("/api/images/{id:int}", async (FuelImportDbContext db, int id) =>
     }
 
     return Results.File(image.FilePath, GetContentType(image.FilePath), enableRangeProcessing: true);
+});
+
+app.MapDelete("/api/images/{id:int}", async (FuelImportDbContext db, int id, ILogger<Program> logger) =>
+{
+    var image = await db.SourceImages.FirstOrDefaultAsync(x => x.SourceImageId == id);
+    if (image is null)
+    {
+        return Results.NotFound();
+    }
+
+    var links = await db.FuelEventSourceImages.Where(link => link.SourceImageId == id).ToListAsync();
+    db.FuelEventSourceImages.RemoveRange(links);
+
+    var affectedEvents = await db.FuelEvents
+        .Where(e => e.PumpSourceImageId == id || e.DashSourceImageId == id)
+        .ToListAsync();
+    foreach (var affectedEvent in affectedEvents)
+    {
+        if (affectedEvent.PumpSourceImageId == id)
+        {
+            affectedEvent.PumpSourceImageId = null;
+        }
+
+        if (affectedEvent.DashSourceImageId == id)
+        {
+            affectedEvent.DashSourceImageId = null;
+        }
+
+        affectedEvent.UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    if (!string.IsNullOrWhiteSpace(image.FilePath) && File.Exists(image.FilePath))
+    {
+        try
+        {
+            File.Delete(image.FilePath);
+        }
+        catch (IOException ex)
+        {
+            logger.LogWarning(ex, "Failed to delete image file {FilePath} for SourceImage {SourceImageId}", image.FilePath, id);
+        }
+    }
+
+    db.SourceImages.Remove(image);
+    await db.SaveChangesAsync();
+    return Results.Ok();
 });
 
 app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id, ReviewUpdateRequest request) =>
@@ -633,6 +686,81 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
     return Results.Ok(fuelEvent);
 });
 
+app.MapPost("/api/events/{id:int}/anomaly-ack", async (FuelImportDbContext db, int id, AnomalyAcknowledgeRequest request) =>
+{
+    var fuelEvent = await db.FuelEvents.FirstOrDefaultAsync(e => e.FuelEventId == id);
+    if (fuelEvent is null)
+    {
+        return Results.NotFound();
+    }
+
+    fuelEvent.AnomalyAcknowledged = request.Acknowledged;
+    fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok(fuelEvent);
+});
+
+app.MapPost("/api/manual/live-validation", async (FuelImportDbContext db, ReviewLiveValidationRequest request) =>
+{
+    var callouts = new List<string>();
+    if (!request.VehicleId.HasValue)
+    {
+        return Results.Ok(new ReviewLiveValidationResponse { Callouts = callouts });
+    }
+
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(v => v.VehicleId == request.VehicleId.Value);
+    if (vehicle is null)
+    {
+        return Results.Ok(new ReviewLiveValidationResponse { Callouts = callouts });
+    }
+
+    if (vehicle.MaxGallonsPerFillUp is decimal maxGallons && request.Gallons is decimal gallons && gallons > maxGallons)
+    {
+        callouts.Add($"Gallons {gallons:0.###} exceeds vehicle max {maxGallons:0.###}.");
+    }
+
+    if (!vehicle.NoOdometer && request.Odometer.HasValue && request.EventTimeUtc.HasValue)
+    {
+        var history = await db.FuelEvents
+            .AsNoTracking()
+            .Where(e => e.VehicleId == vehicle.VehicleId && e.FuelEventId != request.FuelEventId && e.Odometer.HasValue)
+            .OrderBy(e => e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc)
+            .ToListAsync();
+
+        var eventTime = request.EventTimeUtc.Value;
+        var previous = history.LastOrDefault(e => (e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc) <= eventTime);
+        if (previous?.Odometer is int previousOdometer)
+        {
+            var miles = request.Odometer.Value - previousOdometer;
+            if (miles < 0)
+            {
+                callouts.Add($"Odometer is {Math.Abs(miles):N0} miles below the previous recorded reading.");
+            }
+            else
+            {
+                var historicalTankMiles = history
+                    .Zip(history.Skip(1), (earlier, later) => new { earlier, later })
+                    .Select(pair => pair.later.Odometer!.Value - pair.earlier.Odometer!.Value)
+                    .Where(distance => distance >= 0)
+                    .ToList();
+
+                if (historicalTankMiles.Count >= 2)
+                {
+                    var average = historicalTankMiles.Average(distance => (decimal)distance);
+                    var low = Math.Max(0, average * 0.25m);
+                    var high = average * 2m;
+                    if (miles < low || miles > high)
+                    {
+                        callouts.Add($"{miles:N0} miles since the prior fill is outside the usual {low:N0}-{high:N0} mile tank range.");
+                    }
+                }
+            }
+        }
+    }
+
+    return Results.Ok(new ReviewLiveValidationResponse { Callouts = callouts });
+});
+
 app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
 {
     var vehicleMap = await db.Vehicles
@@ -673,7 +801,8 @@ app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
                 CalculatedMpg = metrics.CalculatedMpg,
                 NeedsReview = fuelEvent.NeedsReview,
                 ReviewStatus = fuelEvent.ReviewStatus,
-                AnomalyFlags = metrics.AnomalyFlags
+                AnomalyFlags = metrics.AnomalyFlags,
+                AnomalyAcknowledged = fuelEvent.AnomalyAcknowledged
             };
         })
         .ToList();
@@ -712,7 +841,8 @@ app.MapGet("/api/events/report", async (FuelImportDbContext db) =>
             var gallons = vehicleEvents.Where(e => e.Gallons.HasValue).Select(e => e.Gallons!.Value).ToList();
             var mpgValues = metrics.Where(metric => metric.CalculatedMpg.HasValue).Select(metric => metric.CalculatedMpg!.Value).ToList();
             var spend = vehicleEvents.Where(e => e.TotalPrice.HasValue).Select(e => e.TotalPrice!.Value).ToList();
-            var anomalyCount = metrics.Count(metric => metric.AnomalyFlags.Count > 0);
+            var anomalyCount = vehicleEvents.Count(e =>
+                !e.AnomalyAcknowledged && eventMetrics.TryGetValue(e.FuelEventId, out var metric) && metric.AnomalyFlags.Count > 0);
 
             return new VehicleReportResponse
             {
@@ -731,7 +861,7 @@ app.MapGet("/api/events/report", async (FuelImportDbContext db) =>
         .ToList();
 
     var allAnomalyCount = events.Count(fuelEvent =>
-        eventMetrics.TryGetValue(fuelEvent.FuelEventId, out var metrics) && metrics.AnomalyFlags.Count > 0);
+        !fuelEvent.AnomalyAcknowledged && eventMetrics.TryGetValue(fuelEvent.FuelEventId, out var metrics) && metrics.AnomalyFlags.Count > 0);
 
     return Results.Ok(new DataReportResponse
     {
@@ -801,6 +931,10 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
     var images = await db.SourceImages.AsNoTracking().ToListAsync();
     var links = await db.FuelEventSourceImages.AsNoTracking().ToListAsync();
     var fuelEvents = await db.FuelEvents.AsNoTracking().ToListAsync();
+    var vehiclesById = await db.Vehicles.AsNoTracking().ToDictionaryAsync(vehicle => vehicle.VehicleId);
+    var eventMetrics = BuildEventMetrics(
+        fuelEvents.OrderBy(e => e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc).ThenBy(e => e.FuelEventId).ToList(),
+        vehiclesById);
     var linkedEventByImageId = links.ToDictionary(link => link.SourceImageId, link => link.FuelEventId);
 
     foreach (var fuelEvent in fuelEvents)
@@ -827,6 +961,24 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
                 .ThenBy(image => image.SourceImageId)
                 .ToList();
 
+            var detectionsByImageId = new Dictionary<int, ImageDetection>();
+            if (!string.IsNullOrWhiteSpace(fuelEvent?.DetectionDetailsJson))
+            {
+                try
+                {
+                    var detections = JsonSerializer.Deserialize<List<ImageDetection>>(fuelEvent.DetectionDetailsJson) ?? [];
+                    detectionsByImageId = detections.ToDictionary(detection => detection.SourceImageId);
+                }
+                catch (JsonException)
+                {
+                    // Older or corrupt detection payloads are simply skipped.
+                }
+            }
+
+            var anomalyFlags = fuelEvent is not null && eventMetrics.TryGetValue(fuelEvent.FuelEventId, out var eventMetric)
+                ? eventMetric.AnomalyFlags
+                : [];
+
             return new ManualReviewGroupResponse
             {
                 GroupKey = group.GroupKey,
@@ -847,18 +999,32 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
                 EntrySource = fuelEvent?.EntrySource,
                 DetectionConfidence = fuelEvent?.EntrySource == EntrySource.AutoDetected ? fuelEvent.OverallConfidence : null,
                 ReviewReason = fuelEvent?.ReviewReason,
+                AnomalyFlags = anomalyFlags,
+                AnomalyAcknowledged = fuelEvent?.AnomalyAcknowledged ?? false,
                 Images = orderedImages
-                    .Select((image, index) => new ManualReviewImageResponse
+                    .Select((image, index) =>
                     {
-                        SourceImageId = image.SourceImageId,
-                        FileName = image.FileName,
-                        ImageTypeCandidate = image.ImageTypeCandidate.ToString(),
-                        ImageTypeConfidence = image.ImageTypeConfidence,
-                        CapturedAtUtc = image.CapturedAtUtc,
-                        Latitude = image.Latitude,
-                        Longitude = image.Longitude,
-                        DistanceFromPreviousKilometers = index == 0 ? 0d : CalculateDistanceKilometers(orderedImages[index - 1], image),
-                        ImageUrl = $"/api/images/{image.SourceImageId}"
+                        detectionsByImageId.TryGetValue(image.SourceImageId, out var detection);
+                        return new ManualReviewImageResponse
+                        {
+                            SourceImageId = image.SourceImageId,
+                            FileName = image.FileName,
+                            ImageTypeCandidate = image.ImageTypeCandidate.ToString(),
+                            ImageTypeConfidence = image.ImageTypeConfidence,
+                            CapturedAtUtc = image.CapturedAtUtc,
+                            Latitude = image.Latitude,
+                            Longitude = image.Longitude,
+                            DistanceFromPreviousKilometers = index == 0 ? 0d : CalculateDistanceKilometers(orderedImages[index - 1], image),
+                            ImageUrl = $"/api/images/{image.SourceImageId}",
+                            DetectedGallons = detection?.Gallons,
+                            DetectedTotalCost = detection?.TotalCost,
+                            DetectedOdometer = detection?.Odometer,
+                            DetectedVehicleName = detection?.VehicleName,
+                            DetectedConfidence = detection?.Confidence,
+                            DetectedNotes = detection?.Notes,
+                            DetectedWarnings = detection?.Warnings ?? [],
+                            DetectedErrorMessage = detection?.ErrorMessage
+                        };
                     })
                     .ToList()
             };

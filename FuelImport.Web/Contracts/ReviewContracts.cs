@@ -80,6 +80,26 @@ public class EventLogResponse
     public bool NeedsReview { get; set; }
     public ReviewStatus ReviewStatus { get; set; }
     public List<string> AnomalyFlags { get; set; } = [];
+    public bool AnomalyAcknowledged { get; set; }
+}
+
+public class AnomalyAcknowledgeRequest
+{
+    public bool Acknowledged { get; set; }
+}
+
+public class ReviewLiveValidationRequest
+{
+    public int? FuelEventId { get; set; }
+    public int? VehicleId { get; set; }
+    public int? Odometer { get; set; }
+    public decimal? Gallons { get; set; }
+    public DateTime? EventTimeUtc { get; set; }
+}
+
+public class ReviewLiveValidationResponse
+{
+    public List<string> Callouts { get; set; } = [];
 }
 
 public class VehicleReportResponse
@@ -121,6 +141,16 @@ public class ManualReviewImageResponse
     public double? Longitude { get; set; }
     public double? DistanceFromPreviousKilometers { get; set; }
     public string ImageUrl { get; set; } = string.Empty;
+
+    // Per-image auto-detect OCR reading, when available.
+    public decimal? DetectedGallons { get; set; }
+    public decimal? DetectedTotalCost { get; set; }
+    public int? DetectedOdometer { get; set; }
+    public string? DetectedVehicleName { get; set; }
+    public decimal? DetectedConfidence { get; set; }
+    public string? DetectedNotes { get; set; }
+    public List<string> DetectedWarnings { get; set; } = [];
+    public string? DetectedErrorMessage { get; set; }
 }
 
 public class ManualReviewGroupResponse
@@ -143,6 +173,8 @@ public class ManualReviewGroupResponse
     public EntrySource? EntrySource { get; set; }
     public decimal? DetectionConfidence { get; set; }
     public string? ReviewReason { get; set; }
+    public List<string> AnomalyFlags { get; set; } = [];
+    public bool AnomalyAcknowledged { get; set; }
     public List<ManualReviewImageResponse> Images { get; set; } = [];
 }
 
@@ -157,6 +189,9 @@ public class ManualReviewSaveRequest
     public string? LocationName { get; set; }
     public string? Notes { get; set; }
     public string ReviewerName { get; set; } = "Manual UI";
+
+    /// <summary>False for structural saves (e.g. before a split/merge) that must not count as a human review.</summary>
+    public bool MarkReviewed { get; set; } = true;
 }
 
 public class ManualReviewSplitRequest

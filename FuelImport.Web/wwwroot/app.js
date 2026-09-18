@@ -1,5 +1,5 @@
 const statusEl = document.getElementById('status');
-const queueSummaryEl = document.getElementById('queueSummary');
+const queueDisplayCountEl = document.getElementById('queueDisplayCount');
 const groupListEl = document.getElementById('groupList');
 const viewerShellEl = document.getElementById('viewerShell');
 const entryForm = document.getElementById('entryForm');
@@ -35,6 +35,8 @@ const state = {
     saveInFlightByGroup: {},
     pendingAutosaveByGroup: {},
     queueFilter: 'all',
+    incompleteOnly: false,
+    dateFilter: null,
     pendingSnapshotGroupKeys: new Set(),
     autoSnapshotGroupKeys: new Set(),
     autoDetectStatusByGroup: {},
@@ -111,6 +113,41 @@ function formatDate(value) {
     return new Date(value).toLocaleString();
 }
 
+function formatTime(value) {
+    if (!value) return 'Unknown time';
+    return new Date(value).toLocaleTimeString();
+}
+
+function formatCompactDateRange(startedAtUtc, endedAtUtc) {
+    if (!startedAtUtc) {
+        return 'Unknown time';
+    }
+
+    const start = new Date(startedAtUtc);
+    const end = endedAtUtc ? new Date(endedAtUtc) : start;
+    const startDate = start.toLocaleDateString();
+    const endDate = end.toLocaleDateString();
+    return startDate === endDate
+        ? `${startDate} ${formatTime(startedAtUtc)} to ${formatTime(endedAtUtc ?? startedAtUtc)}`
+        : `${startDate} - ${endDate} ${formatTime(startedAtUtc)} to ${formatTime(endedAtUtc ?? startedAtUtc)}`;
+}
+
+function googlePhotosSearchUrl(value) {
+    return `https://photos.google.com/search/${encodeURIComponent(value ?? '')}`;
+}
+
+function googleMapsSearchUrl(latitude, longitude) {
+    return `https://www.google.com/maps/search/${encodeURIComponent(`${latitude},${longitude}`)}`;
+}
+
+function googleMapsDirectionsUrl(startImage, endImage) {
+    if (startImage?.latitude == null || startImage?.longitude == null || endImage?.latitude == null || endImage?.longitude == null) {
+        return null;
+    }
+
+    return `https://www.google.com/maps/dir/${startImage.latitude},${startImage.longitude}/${endImage.latitude},${endImage.longitude}`;
+}
+
 function formatDateOnly(value) {
     if (!value) return 'Unknown date';
     return new Date(value).toLocaleDateString();
@@ -141,6 +178,44 @@ function formatCurrency(value) {
     }
 
     return `$${value.toFixed(2)}`;
+}
+
+/// Renders the per-image auto-detect OCR reading (if any) so a reviewer can eyeball each photo against the saved total.
+function formatOcrSummary(item) {
+    if (item.detectedErrorMessage) {
+        return `<div class="thumb-ocr thumb-ocr-warning">OCR: ${escapeHtml(item.detectedErrorMessage)}</div>`;
+    }
+
+    const parts = [];
+    if (item.detectedTotalCost != null) {
+        parts.push(`$${Number(item.detectedTotalCost).toFixed(2)}`);
+    }
+
+    if (item.detectedGallons != null) {
+        parts.push(`${Number(item.detectedGallons).toFixed(3)} gal`);
+    }
+
+    if (item.detectedOdometer != null) {
+        parts.push(`odo ${item.detectedOdometer}`);
+    }
+
+    if (item.detectedVehicleName) {
+        parts.push(escapeHtml(item.detectedVehicleName));
+    }
+
+    if (item.detectedConfidence != null) {
+        parts.push(`${Math.round(item.detectedConfidence * 100)}% confidence`);
+    }
+
+    if (!parts.length) {
+        return '';
+    }
+
+    const warnings = (item.detectedWarnings ?? [])
+        .map((warning) => `<div class="thumb-ocr-warning">${escapeHtml(warning)}</div>`)
+        .join('');
+
+    return `<div class="thumb-ocr">OCR: ${parts.join(' · ')}${warnings}</div>`;
 }
 
 function computePricePerGallon(gallons, totalPrice) {
@@ -188,20 +263,19 @@ function findVehicleById(vehicleId) {
     return state.vehicles.find((vehicle) => vehicle.vehicleId === vehicleId) ?? null;
 }
 
-function hasQueueGreenCheck(group) {
+function isGroupComplete(group) {
     const formState = getGroupFormState(group);
-    const vehicle = findVehicleById(formState.vehicleId);
-    const odometerRequired = !(vehicle?.noOdometer ?? false);
-
-    if (formState.totalPrice == null || formState.gallons == null) {
+    if (formState.vehicleId == null || formState.totalPrice == null || formState.gallons == null) {
         return false;
     }
 
-    if (!odometerRequired) {
-        return true;
-    }
+    const vehicle = findVehicleById(formState.vehicleId);
+    const odometerRequired = !(vehicle?.noOdometer ?? false);
+    return !odometerRequired || formState.odometer != null;
+}
 
-    return formState.odometer != null;
+function hasQueueGreenCheck(group) {
+    return isGroupComplete(group);
 }
 
 function escapeHtml(value) {
@@ -232,6 +306,10 @@ function isAwaitingApproval(group) {
     return isAutoDetected(group) && group.reviewStatus !== 'Reviewed';
 }
 
+function isReviewed(group) {
+    return group.fuelEventId != null && group.reviewStatus === 'Reviewed';
+}
+
 function getGroupBadge(group) {
     if (group.fuelEventId == null) {
         return { label: 'Pending', className: 'badge-pending' };
@@ -241,7 +319,11 @@ function getGroupBadge(group) {
         return { label: 'Auto detected', className: 'badge-auto' };
     }
 
-    return { label: 'Reviewed', className: 'badge-saved' };
+    if (isReviewed(group)) {
+        return { label: 'Reviewed', className: 'badge-saved' };
+    }
+
+    return { label: 'Pending', className: 'badge-pending' };
 }
 
 function updateAutoSnapshot() {
@@ -253,15 +335,26 @@ function updateAutoSnapshot() {
 }
 
 function getVisibleGroups() {
+    if (state.dateFilter) {
+        return state.groups.filter((group) => getGroupDayKey(group) === state.dateFilter);
+    }
+
+    let groups = state.groups;
     if (state.queueFilter === 'pending') {
-        return state.groups.filter((group) => state.pendingSnapshotGroupKeys.has(group.groupKey) || group.fuelEventId == null);
+        groups = groups.filter((group) => state.pendingSnapshotGroupKeys.has(group.groupKey) || group.fuelEventId == null);
+    }
+    else if (state.queueFilter === 'auto') {
+        groups = groups.filter((group) => state.autoSnapshotGroupKeys.has(group.groupKey) || isAwaitingApproval(group));
+    }
+    else if (state.queueFilter === 'reviewed') {
+        groups = groups.filter((group) => isReviewed(group));
     }
 
-    if (state.queueFilter === 'auto') {
-        return state.groups.filter((group) => state.autoSnapshotGroupKeys.has(group.groupKey) || isAwaitingApproval(group));
+    if (state.incompleteOnly) {
+        groups = groups.filter((group) => !isGroupComplete(group));
     }
 
-    return state.groups;
+    return groups;
 }
 
 function activeImage() {
@@ -312,6 +405,14 @@ function getNextPendingGroupKey(currentGroupKey) {
 function isOutstandingForFilter(group) {
     if (state.queueFilter === 'auto') {
         return isAwaitingApproval(group);
+    }
+
+    if (state.incompleteOnly) {
+        return !isGroupComplete(group);
+    }
+
+    if (state.queueFilter === 'reviewed') {
+        return false;
     }
 
     return group.fuelEventId == null;
@@ -480,9 +581,20 @@ function selectLastImageForOdometerFocus() {
     }
 }
 
+/// Lets the Log page's "Edit" link (`/?fuelEventId=123`) deep-link back to the matching review queue entry.
+function getRequestedFuelEventIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('fuelEventId');
+    if (!raw) {
+        return null;
+    }
+
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+}
+
 async function loadData(preferredGroupKey, preferredImageId, focusFieldId = null) {
     renderStatus('Loading grouped images…');
-
     try {
         const [groupResponse, vehicleResponse] = await Promise.all([
             fetch('/api/manual/groups'),
@@ -497,10 +609,24 @@ async function loadData(preferredGroupKey, preferredImageId, focusFieldId = null
         state.vehicles = await vehicleResponse.json();
         updatePendingSnapshot();
         updateAutoSnapshot();
-        const visibleGroups = getVisibleGroups();
-        state.selectedGroupKey = preferredGroupKey && state.groups.some((group) => group.groupKey === preferredGroupKey)
+
+        const requestedFuelEventId = getRequestedFuelEventIdFromUrl();
+        let targetGroupKey = preferredGroupKey && state.groups.some((group) => group.groupKey === preferredGroupKey)
             ? preferredGroupKey
-            : (visibleGroups[0]?.groupKey ?? state.groups[0]?.groupKey ?? null);
+            : null;
+
+        if (!targetGroupKey && requestedFuelEventId != null) {
+            const matched = state.groups.find((group) => group.fuelEventId === requestedFuelEventId);
+            if (matched) {
+                targetGroupKey = matched.groupKey;
+                state.queueFilter = 'all';
+                state.dateFilter = null;
+                updateQueueFilterButtons();
+            }
+        }
+
+        const visibleGroups = getVisibleGroups();
+        state.selectedGroupKey = targetGroupKey ?? (visibleGroups[0]?.groupKey ?? state.groups[0]?.groupKey ?? null);
 
         const selectedGroup = activeGroup();
         state.activeImageId = preferredImageId && selectedGroup?.images.some((image) => image.sourceImageId === preferredImageId)
@@ -587,8 +713,15 @@ function formatDayHeading(group) {
     });
 }
 
+const QUEUE_EMPTY_MESSAGES = {
+    pending: 'No pending image groups.',
+    auto: 'No auto detected groups awaiting approval.',
+    reviewed: 'No reviewed groups yet.',
+    incomplete: 'No incomplete groups.'
+};
+
 function renderQueue() {
-    const reviewedCount = state.groups.filter((group) => group.fuelEventId != null && !isAwaitingApproval(group)).length;
+    const reviewedCount = state.groups.filter((group) => isReviewed(group)).length;
     const autoCount = state.groups.filter((group) => isAwaitingApproval(group)).length;
     queueSummaryEl.textContent = autoCount > 0
         ? `${reviewedCount}/${state.groups.length} reviewed · ${autoCount} auto detected`
@@ -596,7 +729,8 @@ function renderQueue() {
 
     const visibleGroups = getVisibleGroups();
     if (!visibleGroups.length) {
-        groupListEl.innerHTML = `<div class="empty-state">${state.queueFilter === 'pending' ? 'No pending image groups.' : 'No imported images found yet.'}</div>`;
+        const message = state.dateFilter ? 'No image groups found for this date.' : (QUEUE_EMPTY_MESSAGES[state.queueFilter] ?? 'No imported images found yet.');
+        groupListEl.innerHTML = `<div class="empty-state">${message}</div>`;
         return;
     }
 
@@ -612,7 +746,7 @@ function renderQueue() {
         const dayKey = getGroupDayKey(group);
         const dayHeader = dayKey === lastDayKey
             ? ''
-            : `<div class="queue-day"><span>${escapeHtml(formatDayHeading(group))}</span><span class="queue-day-count">${groupsPerDay[dayKey]} stop${groupsPerDay[dayKey] === 1 ? '' : 's'}</span></div>`;
+            : `<div class="queue-day ${dayKey === state.dateFilter ? 'active' : ''}" data-day-key="${dayKey}" title="Show every entry for this date"><span>${escapeHtml(formatDayHeading(group))}</span><span class="queue-day-count">${groupsPerDay[dayKey]} stop${groupsPerDay[dayKey] === 1 ? '' : 's'}</span></div>`;
         lastDayKey = dayKey;
         const formState = getGroupFormState(group);
         const orderedImages = getOrderedImages(group);
@@ -667,6 +801,13 @@ function renderQueue() {
         });
     });
 
+    groupListEl.querySelectorAll('[data-day-key]').forEach((element) => {
+        element.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleDateFilter(element.dataset.dayKey);
+        });
+    });
+
     groupListEl.querySelectorAll('[data-action="merge-into-selected"]').forEach((button) => {
         button.addEventListener('click', async (event) => {
             event.stopPropagation();
@@ -699,6 +840,10 @@ function renderWorkspace() {
         groupMetaEl.textContent = '';
         if (detectionCalloutEl instanceof HTMLElement) {
             detectionCalloutEl.style.display = 'none';
+        }
+        const calloutsPanelEl = document.getElementById('calloutsPanel');
+        if (calloutsPanelEl instanceof HTMLElement) {
+            calloutsPanelEl.style.display = 'none';
         }
         renderPricePerGallon();
         return;
@@ -737,6 +882,7 @@ function renderWorkspace() {
               <label class="thumb-check">
                 <input type="checkbox" data-role="split-checkbox" data-image-id="${item.sourceImageId}" ${splitSelection.includes(item.sourceImageId) ? 'checked' : ''} />
               </label>
+              <button type="button" class="thumb-delete" data-role="delete-image" data-image-id="${item.sourceImageId}" title="Delete this image">✕</button>
             </div>
             <div class="thumb-image-frame" data-role="thumb-frame" data-image-id="${item.sourceImageId}">
               <img src="${item.imageUrl}" alt="${escapeHtml(item.fileName)}" data-role="thumb-image" data-image-id="${item.sourceImageId}" style="transform: scale(${currentZoom});" />
@@ -745,6 +891,7 @@ function renderWorkspace() {
             <div class="image-meta">${escapeHtml(item.fileName)}</div>
             <div class="thumb-time">${formatDate(item.capturedAtUtc)}</div>
                         ${formatDistance(item.distanceFromPreviousKilometers) ? `<div class="thumb-time">${formatDistance(item.distanceFromPreviousKilometers)}</div>` : ''}
+                        ${formatOcrSummary(item)}
           </div>
         `;
     }).join('')}
@@ -815,6 +962,13 @@ function renderWorkspace() {
         });
     }
 
+    viewerShellEl.querySelectorAll('[data-role="delete-image"]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            deleteImage(Number(button.dataset.imageId));
+        });
+    });
+
     const formState = getGroupFormState(group);
     vehicleSelect.value = formState.vehicleId ?? '';
     document.getElementById('odometer').value = formState.odometer ?? '';
@@ -825,6 +979,7 @@ function renderWorkspace() {
     document.getElementById('reviewerName').value = formState.reviewerName ?? (state.lastSavedReviewerName || '');
     groupMetaEl.textContent = group.fuelEventId ? `Editing event #${group.fuelEventId}` : `${group.images.length} linked image${group.images.length === 1 ? '' : 's'}`;
     renderDetectionCallout(group);
+    renderAnomalyCallouts(group);
     updateAutoDetectGroupButton();
     renderPricePerGallon(group.pricePerGallon);
 }
@@ -850,6 +1005,86 @@ function renderDetectionCallout(group) {
 
     detectionCalloutEl.style.display = '';
     detectionCalloutEl.textContent = `Auto detected${confidence}. ${group.reviewReason || 'Check the values and approve to mark this group reviewed.'}`;
+}
+
+async function deleteImage(sourceImageId) {
+    if (!sourceImageId) {
+        return;
+    }
+
+    if (!window.confirm('Delete this image and its database entry? This cannot be undone.')) {
+        return;
+    }
+
+    renderStatus('Deleting image…');
+    try {
+        const response = await fetch(`/api/images/${sourceImageId}`, { method: 'DELETE' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const group = activeGroup();
+        delete state.drafts[group?.groupKey];
+        await loadData(group?.groupKey, null);
+        renderStatus('Image deleted.');
+    } catch (error) {
+        console.error(error);
+        renderStatus(error.message || 'Unable to delete the image.');
+    }
+}
+
+function renderAnomalyCallouts(group) {
+    const calloutsPanelEl = document.getElementById('calloutsPanel');
+    if (!(calloutsPanelEl instanceof HTMLElement)) {
+        return;
+    }
+
+    const flags = group.anomalyFlags ?? [];
+    if (!flags.length) {
+        calloutsPanelEl.style.display = 'none';
+        calloutsPanelEl.innerHTML = '';
+        return;
+    }
+
+    const acknowledged = !!group.anomalyAcknowledged;
+    calloutsPanelEl.style.display = '';
+    calloutsPanelEl.classList.toggle('acknowledged', acknowledged);
+    calloutsPanelEl.innerHTML = `
+        <div class="callout-panel-header">${acknowledged ? 'Callouts (approved)' : 'Callouts'}</div>
+        <ul>${flags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join('')}</ul>
+        <button type="button" class="secondary" data-action="toggle-anomaly-ack">${acknowledged ? 'Unapprove' : 'Approve, not a problem'}</button>
+    `;
+
+    const toggleBtn = calloutsPanelEl.querySelector('[data-action="toggle-anomaly-ack"]');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => toggleAnomalyAcknowledged(group, !acknowledged));
+    }
+}
+
+async function toggleAnomalyAcknowledged(group, acknowledged) {
+    if (!group?.fuelEventId) {
+        return;
+    }
+
+    renderStatus(acknowledged ? 'Approving callout…' : 'Reopening callout…');
+    try {
+        const response = await fetch(`/api/events/${group.fuelEventId}/anomaly-ack`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ acknowledged })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        group.anomalyAcknowledged = acknowledged;
+        renderAnomalyCallouts(group);
+        renderStatus(acknowledged ? 'Callout approved.' : 'Callout reopened.');
+    } catch (error) {
+        console.error(error);
+        renderStatus(error.message || 'Unable to update the callout.');
+    }
 }
 
 function handleHeroMouseMove(event) {
@@ -972,6 +1207,8 @@ async function persistCurrentGroup(options = {}) {
         return false;
     }
 
+    const requestBody = options.markReviewed === false ? { ...payload, markReviewed: false } : payload;
+
     if (state.saveInFlightByGroup[group.groupKey]) {
         state.pendingAutosaveByGroup[group.groupKey] = true;
         return false;
@@ -986,7 +1223,7 @@ async function persistCurrentGroup(options = {}) {
         const response = await fetch('/api/manual/groups/save', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {
@@ -1095,7 +1332,7 @@ async function splitSelectedImages() {
         return;
     }
 
-    await persistCurrentGroup({ silent: true });
+    await persistCurrentGroup({ silent: true, markReviewed: false });
     renderStatus('Splitting selected images…');
 
     try {
@@ -1438,8 +1675,20 @@ function updateQueueFilterButtons() {
     });
 }
 
+function toggleDateFilter(dayKey) {
+    state.dateFilter = state.dateFilter === dayKey ? null : dayKey;
+    renderQueue();
+    const visible = getVisibleGroups();
+    if (state.selectedGroupKey && !visible.some((group) => group.groupKey === state.selectedGroupKey)) {
+        state.selectedGroupKey = visible[0]?.groupKey ?? null;
+        state.activeImageId = getDefaultImageId(activeGroup());
+        renderWorkspace();
+    }
+}
+
 function setQueueFilter(filter) {
     state.queueFilter = filter;
+    state.dateFilter = null;
     updateQueueFilterButtons();
     if (state.queueFilter === 'pending') {
         updatePendingSnapshot();

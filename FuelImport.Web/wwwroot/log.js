@@ -59,7 +59,7 @@ function filteredEvents() {
     }
 
     if (anomalyFilterEl instanceof HTMLSelectElement && anomalyFilterEl.value === 'onlyAnomalies') {
-        list = list.filter((item) => (item.anomalyFlags?.length ?? 0) > 0);
+        list = list.filter((item) => (item.anomalyFlags?.length ?? 0) > 0 && !item.anomalyAcknowledged);
     }
 
     return list;
@@ -104,6 +104,25 @@ function renderVehicleFilterOptions() {
     }
 }
 
+/// Applies vehicleId/onlyAnomalies query params (once) so report page callout links land pre-filtered.
+let urlFiltersApplied = false;
+function applyFiltersFromUrl() {
+    if (urlFiltersApplied) {
+        return;
+    }
+
+    urlFiltersApplied = true;
+    const params = new URLSearchParams(window.location.search);
+    const vehicleId = params.get('vehicleId');
+    if (vehicleId && vehicleFilterEl instanceof HTMLSelectElement) {
+        vehicleFilterEl.value = vehicleId;
+    }
+
+    if (params.get('onlyAnomalies') === 'true' && anomalyFilterEl instanceof HTMLSelectElement) {
+        anomalyFilterEl.value = 'onlyAnomalies';
+    }
+}
+
 function formatReviewStatus(value) {
     return value === 'AutoDetected' ? 'Auto detected' : (value ?? 'Pending');
 }
@@ -111,13 +130,14 @@ function formatReviewStatus(value) {
 function renderLog() {
     const rows = filteredEvents();
     if (!rows.length) {
-        logBodyEl.innerHTML = '<tr><td colspan="9" class="empty">No matching events.</td></tr>';
+        logBodyEl.innerHTML = '<tr><td colspan="10" class="empty">No matching events.</td></tr>';
         return;
     }
 
     logBodyEl.innerHTML = rows.map((item) => {
-        const callouts = (item.anomalyFlags ?? []).length
-            ? item.anomalyFlags.map((flag) => `<span class="warn">${escapeHtml(flag)}</span>`).join('')
+        const hasCallouts = (item.anomalyFlags ?? []).length > 0;
+        const callouts = hasCallouts
+            ? item.anomalyFlags.map((flag) => `<span class="warn">${escapeHtml(flag)}</span>`).join('') + (item.anomalyAcknowledged ? '<span class="pill pill-approved">Approved</span>' : '')
             : 'None';
 
         return `
@@ -131,9 +151,49 @@ function renderLog() {
             <td>${formatCurrency(item.totalPrice)}${item.pricePerGallon != null ? ` ($${Number(item.pricePerGallon).toFixed(3)}/gal)` : ''}</td>
             <td><span class="pill pill-review">${escapeHtml(formatReviewStatus(item.reviewStatus))}</span></td>
             <td>${callouts}</td>
+            <td>
+                <div class="row-actions">
+                    <a class="secondary" href="/?fuelEventId=${item.fuelEventId}">Edit</a>
+                    ${hasCallouts ? `<button type="button" class="secondary" data-action="toggle-ack" data-fuel-event-id="${item.fuelEventId}" data-acknowledged="${item.anomalyAcknowledged ? 'true' : 'false'}">${item.anomalyAcknowledged ? 'Unapprove' : 'Approve'}</button>` : ''}
+                </div>
+            </td>
         </tr>
         `;
     }).join('');
+
+    logBodyEl.querySelectorAll('[data-action="toggle-ack"]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const fuelEventId = Number(button.dataset.fuelEventId);
+            const acknowledged = button.dataset.acknowledged !== 'true';
+            toggleAnomalyAcknowledged(fuelEventId, acknowledged);
+        });
+    });
+}
+
+async function toggleAnomalyAcknowledged(fuelEventId, acknowledged) {
+    renderStatus(acknowledged ? 'Approving callout…' : 'Reopening callout…');
+    try {
+        const response = await fetch(`/api/events/${fuelEventId}/anomaly-ack`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ acknowledged })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const item = state.events.find((event) => event.fuelEventId === fuelEventId);
+        if (item) {
+            item.anomalyAcknowledged = acknowledged;
+        }
+
+        renderLog();
+        renderStatus(acknowledged ? 'Callout approved.' : 'Callout reopened.');
+    } catch (error) {
+        console.error(error);
+        renderStatus(error.message || 'Unable to update the callout.');
+    }
 }
 
 async function loadLog() {
@@ -147,6 +207,7 @@ async function loadLog() {
 
         state.events = await response.json();
         renderVehicleFilterOptions();
+        applyFiltersFromUrl();
         renderLog();
         renderStatus(`Loaded ${state.events.length} events.`);
     } catch (error) {
