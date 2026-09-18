@@ -37,6 +37,7 @@ const state = {
     queueFilter: 'all',
     incompleteOnly: false,
     dateFilter: null,
+    liveCalloutsByGroup: {},
     pendingSnapshotGroupKeys: new Set(),
     autoSnapshotGroupKeys: new Set(),
     autoDetectStatusByGroup: {},
@@ -118,7 +119,7 @@ function formatTime(value) {
     return new Date(value).toLocaleTimeString();
 }
 
-function formatCompactDateRange(startedAtUtc, endedAtUtc) {
+function formatCompactDateRangeWithLinkedDates(startedAtUtc, endedAtUtc) {
     if (!startedAtUtc) {
         return 'Unknown time';
     }
@@ -127,9 +128,11 @@ function formatCompactDateRange(startedAtUtc, endedAtUtc) {
     const end = endedAtUtc ? new Date(endedAtUtc) : start;
     const startDate = start.toLocaleDateString();
     const endDate = end.toLocaleDateString();
+    const startLink = `<a href="${googlePhotosSearchUrl(startDate)}" target="_blank" rel="noopener noreferrer">${startDate}</a>`;
+    const endLink = `<a href="${googlePhotosSearchUrl(endDate)}" target="_blank" rel="noopener noreferrer">${endDate}</a>`;
     return startDate === endDate
-        ? `${startDate} ${formatTime(startedAtUtc)} to ${formatTime(endedAtUtc ?? startedAtUtc)}`
-        : `${startDate} - ${endDate} ${formatTime(startedAtUtc)} to ${formatTime(endedAtUtc ?? startedAtUtc)}`;
+        ? `${startLink} ${formatTime(startedAtUtc)} to ${formatTime(endedAtUtc ?? startedAtUtc)}`
+        : `${startLink} - ${endLink} ${formatTime(startedAtUtc)} to ${formatTime(endedAtUtc ?? startedAtUtc)}`;
 }
 
 function googlePhotosSearchUrl(value) {
@@ -233,8 +236,23 @@ function formatMinutesSpread(startedAtUtc, endedAtUtc) {
 
     const start = new Date(startedAtUtc).getTime();
     const end = new Date(endedAtUtc).getTime();
-    const minutes = Math.max(0, Math.round((end - start) / 60000));
+    const seconds = Math.max(0, Math.round((end - start) / 1000));
+    if (seconds < 60) {
+        return `${seconds} sec`;
+    }
+
+    const minutes = Math.round(seconds / 60);
     return `${minutes} min`;
+}
+
+function formatImageTravel(previousImage, image) {
+    if (!previousImage || !image) {
+        return '';
+    }
+
+    const minutes = getMinutesSpread(previousImage.capturedAtUtc, image.capturedAtUtc);
+    const miles = formatDistance(image.distanceFromPreviousKilometers);
+    return `${minutes} min${miles ? `, ${miles}` : ''}`;
 }
 
 function getMinutesSpread(startedAtUtc, endedAtUtc) {
@@ -403,16 +421,16 @@ function getNextPendingGroupKey(currentGroupKey) {
 }
 
 function isOutstandingForFilter(group) {
+    if (state.queueFilter === 'reviewed') {
+        return false;
+    }
+
     if (state.queueFilter === 'auto') {
         return isAwaitingApproval(group);
     }
 
     if (state.incompleteOnly) {
         return !isGroupComplete(group);
-    }
-
-    if (state.queueFilter === 'reviewed') {
-        return false;
     }
 
     return group.fuelEventId == null;
@@ -615,6 +633,10 @@ async function loadData(preferredGroupKey, preferredImageId, focusFieldId = null
             ? preferredGroupKey
             : null;
 
+        if (!targetGroupKey && preferredImageId) {
+            targetGroupKey = state.groups.find((group) => group.images.some((image) => image.sourceImageId === preferredImageId))?.groupKey ?? null;
+        }
+
         if (!targetGroupKey && requestedFuelEventId != null) {
             const matched = state.groups.find((group) => group.fuelEventId === requestedFuelEventId);
             if (matched) {
@@ -716,18 +738,15 @@ function formatDayHeading(group) {
 const QUEUE_EMPTY_MESSAGES = {
     pending: 'No pending image groups.',
     auto: 'No auto detected groups awaiting approval.',
-    reviewed: 'No reviewed groups yet.',
-    incomplete: 'No incomplete groups.'
+    reviewed: 'No reviewed groups yet.'
 };
 
 function renderQueue() {
-    const reviewedCount = state.groups.filter((group) => isReviewed(group)).length;
-    const autoCount = state.groups.filter((group) => isAwaitingApproval(group)).length;
-    queueSummaryEl.textContent = autoCount > 0
-        ? `${reviewedCount}/${state.groups.length} reviewed · ${autoCount} auto detected`
-        : `${reviewedCount}/${state.groups.length} reviewed`;
-
     const visibleGroups = getVisibleGroups();
+    if (queueDisplayCountEl instanceof HTMLElement) {
+        queueDisplayCountEl.textContent = `${visibleGroups.length} ${visibleGroups.length === 1 ? 'entry' : 'entries'} displayed`;
+    }
+
     if (!visibleGroups.length) {
         const message = state.dateFilter ? 'No image groups found for this date.' : (QUEUE_EMPTY_MESSAGES[state.queueFilter] ?? 'No imported images found yet.');
         groupListEl.innerHTML = `<div class="empty-state">${message}</div>`;
@@ -858,13 +877,17 @@ function renderWorkspace() {
 
     const splitSelection = getSplitSelection(group.groupKey);
     const hasSplitSelection = splitSelection.length > 0;
+    const firstImage = orderedImages[0];
+    const lastImage = orderedImages[orderedImages.length - 1];
+    const directionsUrl = googleMapsDirectionsUrl(firstImage, lastImage);
+    const groupMiles = formatDistance(group.maxDistanceKilometers);
 
     viewerShellEl.innerHTML = `
     <div class="viewer-top">
       <div>
         <strong>${escapeHtml(group.locationName || 'Manual review group')}</strong>
-        <div class="group-meta">${formatDate(group.startedAtUtc)}${group.endedAtUtc && group.endedAtUtc !== group.startedAtUtc ? ` to ${formatDate(group.endedAtUtc)}` : ''}</div>
-        <div class="group-meta">${formatCoordinate(group.latitude, group.longitude)} · Spread ${formatDistance(group.maxDistanceKilometers)}</div>
+            <div class="group-meta">${formatCompactDateRangeWithLinkedDates(group.startedAtUtc, group.endedAtUtc)} · ${formatMinutesSpread(group.startedAtUtc, group.endedAtUtc)} spread</div>
+        ${directionsUrl ? `<div class="group-meta"><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer">Directions${groupMiles ? ` (${groupMiles})` : ''}</a></div>` : ''}
       </div>
       <div class="viewer-actions">
         <div id="splitActionsContainer" style="${hasSplitSelection ? '' : 'display: none;'}">
@@ -873,25 +896,27 @@ function renderWorkspace() {
         </div>
       </div>
       <div class="thumb-strip">
-                ${orderedImages.map((item) => {
+                                ${orderedImages.map((item, index) => {
         const zoomIndex = state.thumbZoomByImageId[item.sourceImageId] ?? 0;
         const currentZoom = THUMB_ZOOM_LEVELS[zoomIndex];
+        const mapsUrl = item.latitude != null && item.longitude != null ? googleMapsSearchUrl(item.latitude, item.longitude) : null;
+        const travel = formatImageTravel(orderedImages[index - 1], item);
         return `
           <div class="thumb-card ${item.sourceImageId === state.activeImageId ? 'active' : ''}" data-role="thumb-card" data-image-id="${item.sourceImageId}">
             <div class="thumb-actions">
               <label class="thumb-check">
                 <input type="checkbox" data-role="split-checkbox" data-image-id="${item.sourceImageId}" ${splitSelection.includes(item.sourceImageId) ? 'checked' : ''} />
               </label>
-              <button type="button" class="thumb-delete" data-role="delete-image" data-image-id="${item.sourceImageId}" title="Delete this image">✕</button>
             </div>
             <div class="thumb-image-frame" data-role="thumb-frame" data-image-id="${item.sourceImageId}">
               <img src="${item.imageUrl}" alt="${escapeHtml(item.fileName)}" data-role="thumb-image" data-image-id="${item.sourceImageId}" style="transform: scale(${currentZoom});" />
             </div>
-            <div><span class="badge badge-type">${escapeHtml(item.imageTypeCandidate)}</span></div>
-            <div class="image-meta">${escapeHtml(item.fileName)}</div>
-            <div class="thumb-time">${formatDate(item.capturedAtUtc)}</div>
-                        ${formatDistance(item.distanceFromPreviousKilometers) ? `<div class="thumb-time">${formatDistance(item.distanceFromPreviousKilometers)}</div>` : ''}
                         ${formatOcrSummary(item)}
+                        <div class="image-meta"><a href="${googlePhotosSearchUrl(item.fileName)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.fileName)}</a></div>
+                        <div class="thumb-time"><a href="${googlePhotosSearchUrl(item.fileName)}" target="_blank" rel="noopener noreferrer">${formatDate(item.capturedAtUtc)}</a></div>
+                        ${mapsUrl ? `<div class="thumb-time"><a href="${mapsUrl}" target="_blank" rel="noopener noreferrer">${formatCoordinate(item.latitude, item.longitude)}</a></div>` : ''}
+                        ${travel ? `<div class="thumb-time">${travel}</div>` : ''}
+                        <button type="button" class="thumb-delete" data-role="delete-image" data-image-id="${item.sourceImageId}" title="Delete this image">&#128465;</button>
           </div>
         `;
     }).join('')}
@@ -1016,6 +1041,8 @@ async function deleteImage(sourceImageId) {
         return;
     }
 
+    const group = activeGroup();
+    const remainingImageId = group?.images.find((image) => image.sourceImageId !== sourceImageId)?.sourceImageId ?? null;
     renderStatus('Deleting image…');
     try {
         const response = await fetch(`/api/images/${sourceImageId}`, { method: 'DELETE' });
@@ -1023,9 +1050,8 @@ async function deleteImage(sourceImageId) {
             throw new Error(`HTTP ${response.status}`);
         }
 
-        const group = activeGroup();
         delete state.drafts[group?.groupKey];
-        await loadData(group?.groupKey, null);
+        await loadData(null, remainingImageId);
         renderStatus('Image deleted.');
     } catch (error) {
         console.error(error);
@@ -1039,25 +1065,59 @@ function renderAnomalyCallouts(group) {
         return;
     }
 
-    const flags = group.anomalyFlags ?? [];
+    const persistedFlags = group.anomalyFlags ?? [];
+    const liveFlags = state.liveCalloutsByGroup[group.groupKey] ?? [];
+    const flags = [...new Set([...persistedFlags, ...liveFlags])];
     if (!flags.length) {
         calloutsPanelEl.style.display = 'none';
         calloutsPanelEl.innerHTML = '';
         return;
     }
 
-    const acknowledged = !!group.anomalyAcknowledged;
+    const acknowledged = !!group.anomalyAcknowledged && liveFlags.length === 0;
     calloutsPanelEl.style.display = '';
     calloutsPanelEl.classList.toggle('acknowledged', acknowledged);
     calloutsPanelEl.innerHTML = `
         <div class="callout-panel-header">${acknowledged ? 'Callouts (approved)' : 'Callouts'}</div>
         <ul>${flags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join('')}</ul>
-        <button type="button" class="secondary" data-action="toggle-anomaly-ack">${acknowledged ? 'Unapprove' : 'Approve, not a problem'}</button>
+        ${group.fuelEventId && persistedFlags.length > 0 ? `<button type="button" class="secondary" data-action="toggle-anomaly-ack">${acknowledged ? 'Unapprove' : 'Approve, not a problem'}</button>` : ''}
     `;
 
     const toggleBtn = calloutsPanelEl.querySelector('[data-action="toggle-anomaly-ack"]');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', () => toggleAnomalyAcknowledged(group, !acknowledged));
+    }
+}
+
+async function validateCurrentGroup() {
+    const group = activeGroup();
+    const draft = captureFormDraft();
+    if (!group || !draft) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/manual/live-validation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fuelEventId: draft.fuelEventId,
+                vehicleId: draft.vehicleId,
+                odometer: draft.odometer,
+                gallons: draft.gallons,
+                eventTimeUtc: group.startedAtUtc
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        state.liveCalloutsByGroup[group.groupKey] = result.callouts ?? [];
+        renderAnomalyCallouts(group);
+    } catch (error) {
+        console.error(error);
     }
 }
 
@@ -1399,6 +1459,10 @@ entryForm.querySelectorAll('input, select, textarea').forEach((field) => {
         if (field.id === 'gallons' || field.id === 'totalPrice') {
             renderPricePerGallon();
         }
+
+        if (field.id === 'gallons' || field.id === 'odometer' || field.id === 'vehicleId') {
+            validateCurrentGroup();
+        }
     });
 
     field.addEventListener('blur', async () => {
@@ -1406,6 +1470,9 @@ entryForm.querySelectorAll('input, select, textarea').forEach((field) => {
             unifyMathInputValue(field);
         }
 
+        if (field.id === 'gallons' || field.id === 'odometer' || field.id === 'vehicleId') {
+            await validateCurrentGroup();
+        }
         await autosaveCurrentField();
     });
 });
@@ -1670,7 +1737,8 @@ async function runAutoDetect(body, button, statusMessage, preferredGroupKey) {
 function updateQueueFilterButtons() {
     document.querySelectorAll('.queue-filter-btn').forEach((btn) => {
         if (btn instanceof HTMLElement) {
-            btn.classList.toggle('active', btn.dataset.filter === state.queueFilter);
+            const isIncompleteToggle = btn.dataset.filter === 'incomplete';
+            btn.classList.toggle('active', isIncompleteToggle ? state.incompleteOnly : btn.dataset.filter === state.queueFilter);
         }
     });
 }
@@ -1687,7 +1755,12 @@ function toggleDateFilter(dayKey) {
 }
 
 function setQueueFilter(filter) {
-    state.queueFilter = filter;
+    if (filter === 'incomplete') {
+        state.incompleteOnly = !state.incompleteOnly;
+    } else {
+        state.queueFilter = filter;
+    }
+
     state.dateFilter = null;
     updateQueueFilterButtons();
     if (state.queueFilter === 'pending') {

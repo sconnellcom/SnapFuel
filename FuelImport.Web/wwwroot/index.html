@@ -227,7 +227,7 @@
 
     .queue-filter-status {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .queue-display-count {
@@ -667,8 +667,8 @@
 
     .thumb-delete {
       position: absolute;
-      right: 0;
-      bottom: -192px;
+      right: 10px;
+      bottom: 10px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -799,14 +799,15 @@
         <div class="queue-title">
           <strong>Review Queue</strong>
         </div>
-        <div class="queue-filter-group queue-filter-completeness" role="group" aria-label="Filter review queue completeness">
-          <button type="button" class="queue-filter-btn" data-filter="incomplete">Incomplete only</button>
-        </div>
         <div class="queue-filter-group queue-filter-status" role="group" aria-label="Filter review queue status">
           <button type="button" class="queue-filter-btn active" data-filter="all">All</button>
           <button type="button" class="queue-filter-btn" data-filter="pending">Pending</button>
           <button type="button" class="queue-filter-btn" data-filter="auto">Auto detected</button>
           <button type="button" class="queue-filter-btn" data-filter="reviewed">Reviewed</button>
+        </div>
+        <div class="queue-filter-group queue-filter-completeness" role="group"
+          aria-label="Filter review queue completeness">
+          <button type="button" class="queue-filter-btn" data-filter="incomplete">Incomplete only</button>
         </div>
         <div id="queueDisplayCount" class="queue-display-count"></div>
         <div id="groupList" class="queue-list"></div>
