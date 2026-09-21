@@ -242,7 +242,7 @@ function createChartSvg(points, color, formatValue) {
         <text class="chart-label" x="${padLeft - 4}" y="${height - padBottom + 2}" text-anchor="end">${escapeHtml(formatValue(min))}</text>
         <path class="chart-line" d="${path}" style="stroke:${color};" />
         ${mapped.map((point) => `
-            <circle class="chart-point" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3.5" style="fill:${color};">
+            <circle class="chart-point" data-fuel-event-id="${point.fuelEventId}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3.5" style="fill:${color};">
                 <title>${escapeHtml(point.timeLabel)} | ${escapeHtml(formatValue(point.value))} | event #${point.fuelEventId}</title>
             </circle>
         `).join('')}
@@ -284,6 +284,16 @@ function renderTrendCharts() {
         `;
     }).join('');
 }
+
+trendChartsEl?.addEventListener('click', (event) => {
+    const point = event.target instanceof Element
+        ? event.target.closest('.chart-point[data-fuel-event-id]')
+        : null;
+    const fuelEventId = point?.getAttribute('data-fuel-event-id');
+    if (fuelEventId) {
+        window.location.href = `/?fuelEventId=${encodeURIComponent(fuelEventId)}`;
+    }
+});
 
 async function loadReport() {
     renderStatus('Loading report…');
