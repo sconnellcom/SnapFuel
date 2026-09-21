@@ -36,7 +36,7 @@ public static class DetectionResponseParser
 
         detection.RawJson = json;
         detection.ImageType = ParseImageType(ReadString(root, "imageType"));
-        detection.Gallons = ReadDecimal(root, "gallons");
+        ApplyVolume(detection, root);
         detection.TotalCost = ReadDecimal(root, "totalCost") ?? ReadDecimal(root, "cost");
         detection.Odometer = ReadDecimal(root, "odometer") is decimal odometer
             ? (int)Math.Round(odometer, MidpointRounding.AwayFromZero)
@@ -48,6 +48,28 @@ public static class DetectionResponseParser
         detection.Notes = ReadString(root, "notes");
 
         return detection;
+    }
+
+    /// <summary>Reads the reported volume and unit, converting to canonical gallons; assumes gallons when the unit is unclear.</summary>
+    private static void ApplyVolume(ImageDetection detection, JsonElement root)
+    {
+        var volume = ReadDecimal(root, "volume") ?? ReadDecimal(root, "gallons");
+        var unit = ReadString(root, "volumeUnit")?.Trim().ToLowerInvariant();
+
+        if (volume is null)
+        {
+            return;
+        }
+
+        if (unit is "liter" or "liters" or "litre" or "litres" or "l")
+        {
+            detection.Liters = volume;
+            detection.Gallons = VolumeUnitConverter.LitersToGallons(volume.Value);
+        }
+        else
+        {
+            detection.Gallons = volume;
+        }
     }
 
     private static string? ExtractJsonObject(string? content)

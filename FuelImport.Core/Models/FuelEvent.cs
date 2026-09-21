@@ -12,6 +12,8 @@ public class FuelEvent
     public double? Longitude { get; set; }
     public string? LocationName { get; set; }
     public decimal? Gallons { get; set; }
+    /// <summary>Raw liters entered/detected, if the reading was in liters; Gallons always holds the converted canonical value.</summary>
+    public decimal? Liters { get; set; }
     public decimal? TotalPrice { get; set; }
     public decimal? PricePerGallon { get; set; }
     public int? Odometer { get; set; }

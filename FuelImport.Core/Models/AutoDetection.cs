@@ -27,6 +27,8 @@ public class ImageDetection
     public int SourceImageId { get; set; }
     public ImageType ImageType { get; set; } = ImageType.Unknown;
     public decimal? Gallons { get; set; }
+    /// <summary>Raw liters reading, populated only when the model reported the display was in liters.</summary>
+    public decimal? Liters { get; set; }
     public decimal? TotalCost { get; set; }
     public int? Odometer { get; set; }
     public string? VehicleName { get; set; }
@@ -44,6 +46,7 @@ public class GroupDetectionResult
     public bool Succeeded { get; set; }
     public string? Message { get; set; }
     public decimal? Gallons { get; set; }
+    public decimal? Liters { get; set; }
     public decimal? TotalPrice { get; set; }
     public int? Odometer { get; set; }
     public int? VehicleId { get; set; }

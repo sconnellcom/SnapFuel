@@ -200,6 +200,7 @@ public class AutoDetectionService(
         }
 
         groupResult.Gallons = pumpTotals.Gallons;
+        groupResult.Liters = pumpTotals.Liters;
         groupResult.TotalPrice = pumpTotals.TotalCost;
         groupResult.Odometer = dashboard?.Odometer;
         groupResult.VehicleId = knownVehicle?.VehicleId ?? ResolveDetectedVehicleId(usable, candidateVehicles);
@@ -231,7 +232,7 @@ public class AutoDetectionService(
     }
 
     /// <summary>Adds up distinct pump readings so a multi-transaction stop lands as one total.</summary>
-    private static (decimal? Gallons, decimal? TotalCost, int SourceCount) SumPumpReadings(IReadOnlyCollection<ImageDetection> detections)
+    private static (decimal? Gallons, decimal? Liters, decimal? TotalCost, int SourceCount) SumPumpReadings(IReadOnlyCollection<ImageDetection> detections)
     {
         var readings = detections
             .Where(detection => detection.ImageType == ImageType.Pump && (detection.Gallons.HasValue || detection.TotalCost.HasValue))
@@ -243,14 +244,17 @@ public class AutoDetectionService(
 
         if (readings.Count == 0)
         {
-            return (null, null, 0);
+            return (null, null, null, 0);
         }
 
         var gallons = readings.Where(reading => reading.Gallons.HasValue).Select(reading => reading.Gallons!.Value).ToList();
+        var liters = readings.Where(reading => reading.Liters.HasValue).Select(reading => reading.Liters!.Value).ToList();
         var costs = readings.Where(reading => reading.TotalCost.HasValue).Select(reading => reading.TotalCost!.Value).ToList();
 
+        // Only surface a liters total when every summed reading was reported in liters; otherwise the sum would be ambiguous.
         return (
             gallons.Count > 0 ? Math.Round(gallons.Sum(), 3, MidpointRounding.AwayFromZero) : null,
+            liters.Count == readings.Count ? Math.Round(liters.Sum(), 3, MidpointRounding.AwayFromZero) : null,
             costs.Count > 0 ? Math.Round(costs.Sum(), 2, MidpointRounding.AwayFromZero) : null,
             readings.Count);
     }
@@ -397,21 +401,25 @@ public class AutoDetectionService(
             || (existingEvent.EntrySource == EntrySource.AutoDetected && existingEvent.ReviewStatus == ReviewStatus.AutoDetected);
 
         var previousGallons = fuelEvent.Gallons;
+        var previousLiters = fuelEvent.Liters;
         var previousTotalPrice = fuelEvent.TotalPrice;
         var previousOdometer = fuelEvent.Odometer;
         var previousVehicleId = fuelEvent.VehicleId;
 
         fuelEvent.VehicleId ??= groupResult.VehicleId;
         fuelEvent.Gallons = Merge(fuelEvent.Gallons, groupResult.Gallons, mayReplaceExisting);
+        fuelEvent.Liters = Merge(fuelEvent.Liters, groupResult.Liters, mayReplaceExisting);
         fuelEvent.TotalPrice = Merge(fuelEvent.TotalPrice, groupResult.TotalPrice, mayReplaceExisting);
         fuelEvent.Odometer = Merge(fuelEvent.Odometer, groupResult.Odometer, mayReplaceExisting);
 
         var changedAnything = fuelEvent.Gallons != previousGallons
+            || fuelEvent.Liters != previousLiters
             || fuelEvent.TotalPrice != previousTotalPrice
             || fuelEvent.Odometer != previousOdometer
             || fuelEvent.VehicleId != previousVehicleId;
 
         groupResult.Gallons = fuelEvent.Gallons;
+        groupResult.Liters = fuelEvent.Liters;
         groupResult.TotalPrice = fuelEvent.TotalPrice;
         groupResult.Odometer = fuelEvent.Odometer;
         groupResult.LeftExistingValuesAlone = !mayReplaceExisting;

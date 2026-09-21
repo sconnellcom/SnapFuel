@@ -49,4 +49,26 @@ public class DetectionResponseParserTests
 
         Assert.Equal(1m, detection.Confidence);
     }
+
+    [Fact]
+    public void Parse_ConvertsLitersToGallons()
+    {
+        const string content = "{\"imageType\":\"pump\",\"volume\":45.42,\"volumeUnit\":\"liters\",\"totalCost\":41.2,\"confidence\":0.8}";
+
+        var detection = DetectionResponseParser.Parse(9, content);
+
+        Assert.Equal(45.42m, detection.Liters);
+        Assert.Equal(VolumeUnitConverter.LitersToGallons(45.42m), detection.Gallons);
+    }
+
+    [Fact]
+    public void Parse_AssumesGallonsWhenUnitIsMissing()
+    {
+        const string content = "{\"imageType\":\"pump\",\"volume\":12.0,\"totalCost\":41.2,\"confidence\":0.8}";
+
+        var detection = DetectionResponseParser.Parse(9, content);
+
+        Assert.Equal(12.0m, detection.Gallons);
+        Assert.Null(detection.Liters);
+    }
 }

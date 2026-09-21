@@ -144,6 +144,7 @@ public class ManualReviewImageResponse
 
     // Per-image auto-detect OCR reading, when available.
     public decimal? DetectedGallons { get; set; }
+    public decimal? DetectedLiters { get; set; }
     public decimal? DetectedTotalCost { get; set; }
     public int? DetectedOdometer { get; set; }
     public string? DetectedVehicleName { get; set; }
@@ -166,6 +167,7 @@ public class ManualReviewGroupResponse
     public int? VehicleId { get; set; }
     public int? Odometer { get; set; }
     public decimal? Gallons { get; set; }
+    public decimal? Liters { get; set; }
     public decimal? TotalPrice { get; set; }
     public decimal? PricePerGallon { get; set; }
     public string? Notes { get; set; }
@@ -185,6 +187,7 @@ public class ManualReviewSaveRequest
     public int? VehicleId { get; set; }
     public int? Odometer { get; set; }
     public decimal? Gallons { get; set; }
+    public decimal? Liters { get; set; }
     public decimal? TotalPrice { get; set; }
     public string? LocationName { get; set; }
     public string? Notes { get; set; }

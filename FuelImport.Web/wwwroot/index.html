@@ -579,12 +579,31 @@
       gap: 12px;
     }
 
+    .fields-fuel {
+      grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+    }
+
     label {
       display: flex;
       flex-direction: column;
       gap: 6px;
       color: var(--muted);
       font-size: 0.84rem;
+    }
+
+    .volume-input-group {
+      display: flex;
+      gap: 6px;
+    }
+
+    .volume-input-group input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .volume-input-group select {
+      flex: 0 0 auto;
+      width: auto;
     }
 
     input,
@@ -826,15 +845,21 @@
 
             <div class="section-card">
               <h2>Fuel purchase details</h2>
-              <div class="fields">
+              <div class="fields fields-fuel">
                 <label>
                   Dollars
                   <input id="totalPrice" name="totalPrice" type="number" step="0.01" />
                 </label>
 
                 <label>
-                  Gallons
-                  <input id="gallons" name="gallons" type="number" step="0.001" />
+                  Fuel volume
+                  <span class="volume-input-group">
+                    <input id="volume" name="volume" type="number" step="0.001" />
+                    <select id="volumeUnit" name="volumeUnit">
+                      <option value="gallons">Gallons</option>
+                      <option value="liters">Liters</option>
+                    </select>
+                  </span>
                 </label>
 
                 <label class="full-width">
@@ -892,7 +917,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=6"></script>
+  <script src="/app.js?v=7"></script>
 </body>
 
 </html>

@@ -479,7 +479,8 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     var original = fuelEvent is null ? null : JsonSerializer.Serialize(fuelEvent);
     var eventTimeUtc = FirstTimestamp(images.Select(image => image.CapturedAtUtc));
     var eventTimeLocal = FirstTimestamp(images.Select(image => image.CapturedAtLocal));
-    var gallons = request.Gallons;
+    var liters = request.Liters;
+    var gallons = liters.HasValue ? VolumeUnitConverter.LitersToGallons(liters.Value) : request.Gallons;
     var totalPrice = request.TotalPrice;
     decimal? pricePerGallon = gallons.HasValue && totalPrice.HasValue && gallons.Value > 0
         ? Math.Round(totalPrice.Value / gallons.Value, 3, MidpointRounding.AwayFromZero)
@@ -493,6 +494,7 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     fuelEvent.VehicleId = request.VehicleId;
     fuelEvent.Odometer = request.Odometer;
     fuelEvent.Gallons = gallons;
+    fuelEvent.Liters = liters;
     fuelEvent.TotalPrice = totalPrice;
     fuelEvent.PricePerGallon = pricePerGallon;
     fuelEvent.LocationName = NormalizeOptional(request.LocationName);
@@ -996,6 +998,7 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
                 VehicleId = fuelEvent?.VehicleId,
                 Odometer = fuelEvent?.Odometer,
                 Gallons = fuelEvent?.Gallons,
+                Liters = fuelEvent?.Liters,
                 TotalPrice = fuelEvent?.TotalPrice,
                 PricePerGallon = fuelEvent?.PricePerGallon,
                 Notes = fuelEvent?.Notes,
@@ -1021,6 +1024,7 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
                             DistanceFromPreviousKilometers = index == 0 ? 0d : CalculateDistanceKilometers(orderedImages[index - 1], image),
                             ImageUrl = $"/api/images/{image.SourceImageId}",
                             DetectedGallons = detection?.Gallons,
+                            DetectedLiters = detection?.Liters,
                             DetectedTotalCost = detection?.TotalCost,
                             DetectedOdometer = detection?.Odometer,
                             DetectedVehicleName = detection?.VehicleName,

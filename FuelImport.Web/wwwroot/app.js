@@ -23,6 +23,20 @@ try {
 const MAGNIFICATION_LEVELS = [1.6, 2.5, 4.0];
 const MAGNIFICATION_LABELS = ['1.6x', '2.5x', '4.0x'];
 const THUMB_ZOOM_LEVELS = [1.35, 2.2, 1.0];
+const LITERS_PER_GALLON = 3.785411784;
+
+function roundTo(value, decimals) {
+    const factor = 10 ** decimals;
+    return Math.round(value * factor) / factor;
+}
+
+function gallonsToLiters(gallons) {
+    return roundTo(gallons * LITERS_PER_GALLON, 3);
+}
+
+function litersToGallons(liters) {
+    return roundTo(liters / LITERS_PER_GALLON, 3);
+}
 
 const state = {
     groups: [],
@@ -194,7 +208,9 @@ function formatOcrSummary(item) {
         parts.push(`$${Number(item.detectedTotalCost).toFixed(2)}`);
     }
 
-    if (item.detectedGallons != null) {
+    if (item.detectedLiters != null) {
+        parts.push(`${Number(item.detectedLiters).toFixed(3)} L`);
+    } else if (item.detectedGallons != null) {
         parts.push(`${Number(item.detectedGallons).toFixed(3)} gal`);
     }
 
@@ -473,6 +489,8 @@ function getGroupFormState(group) {
         vehicleId: group.vehicleId ?? null,
         odometer: group.odometer ?? null,
         gallons: group.gallons ?? null,
+        liters: group.liters ?? null,
+        volumeUnit: group.liters != null ? 'liters' : 'gallons',
         totalPrice: group.totalPrice ?? null,
         locationName: group.locationName ?? null,
         notes: group.notes ?? null,
@@ -487,6 +505,7 @@ function serializeFormState(formState) {
         vehicleId: formState.vehicleId ?? null,
         odometer: formState.odometer ?? null,
         gallons: formState.gallons ?? null,
+        liters: formState.liters ?? null,
         totalPrice: formState.totalPrice ?? null,
         locationName: formState.locationName ?? null,
         notes: formState.notes ?? null,
@@ -503,12 +522,22 @@ function captureFormDraft() {
     const reviewerInput = document.getElementById('reviewerName');
     const reviewerValue = reviewerInput instanceof HTMLInputElement ? reviewerInput.value : (state.lastSavedReviewerName || '');
 
+    const volumeUnitSelect = document.getElementById('volumeUnit');
+    const volumeUnit = volumeUnitSelect instanceof HTMLSelectElement ? volumeUnitSelect.value : 'gallons';
+    const volumeValue = numberOrNull(document.getElementById('volume').value);
+    const gallons = volumeUnit === 'liters'
+        ? (volumeValue != null ? litersToGallons(volumeValue) : null)
+        : volumeValue;
+    const liters = volumeUnit === 'liters' ? volumeValue : null;
+
     const draft = {
         fuelEventId: group.fuelEventId,
         imageIds: group.images.map((image) => image.sourceImageId),
         vehicleId: numberOrNull(vehicleSelect.value),
         odometer: numberOrNull(document.getElementById('odometer').value),
-        gallons: numberOrNull(document.getElementById('gallons').value),
+        gallons,
+        liters,
+        volumeUnit,
         totalPrice: numberOrNull(document.getElementById('totalPrice').value),
         locationName: document.getElementById('locationName').value || null,
         notes: document.getElementById('notes').value || null,
@@ -535,7 +564,7 @@ function captureFocusState() {
 function focusFirstEmptyField() {
     const orderedFields = [
         document.getElementById('totalPrice'),
-        document.getElementById('gallons'),
+        document.getElementById('volume'),
         document.getElementById('locationName'),
         document.getElementById('vehicleId'),
         document.getElementById('odometer'),
@@ -1001,7 +1030,13 @@ function renderWorkspace() {
     const formState = getGroupFormState(group);
     vehicleSelect.value = formState.vehicleId ?? '';
     document.getElementById('odometer').value = formState.odometer ?? '';
-    document.getElementById('gallons').value = formState.gallons ?? '';
+    const volumeUnitSelect = document.getElementById('volumeUnit');
+    const volumeUnit = formState.volumeUnit ?? (formState.liters != null ? 'liters' : 'gallons');
+    if (volumeUnitSelect instanceof HTMLSelectElement) {
+        volumeUnitSelect.value = volumeUnit;
+        volumeUnitSelect.dataset.previousUnit = volumeUnit;
+    }
+    document.getElementById('volume').value = (volumeUnit === 'liters' ? formState.liters : formState.gallons) ?? '';
     document.getElementById('totalPrice').value = formState.totalPrice ?? '';
     document.getElementById('locationName').value = formState.locationName ?? '';
     document.getElementById('notes').value = formState.notes ?? '';
@@ -1229,7 +1264,12 @@ function handleHeroMouseLeave() {
 }
 
 function renderPricePerGallon(existingValue) {
-    const gallons = numberOrNull(document.getElementById('gallons').value);
+    const volumeUnitSelect = document.getElementById('volumeUnit');
+    const volumeUnit = volumeUnitSelect instanceof HTMLSelectElement ? volumeUnitSelect.value : 'gallons';
+    const volumeValue = numberOrNull(document.getElementById('volume').value);
+    const gallons = volumeUnit === 'liters'
+        ? (volumeValue != null ? litersToGallons(volumeValue) : null)
+        : volumeValue;
     const totalPrice = numberOrNull(document.getElementById('totalPrice').value);
     const computed = gallons && totalPrice ? totalPrice / gallons : null;
     const displayValue = computed ?? existingValue;
@@ -1248,6 +1288,7 @@ function updateLocalGroupFromPayload(groupKey, payload, savedEvent) {
     group.vehicleId = payload.vehicleId;
     group.odometer = payload.odometer;
     group.gallons = payload.gallons;
+    group.liters = payload.liters;
     group.totalPrice = payload.totalPrice;
     group.locationName = payload.locationName;
     group.notes = payload.notes;
@@ -1458,28 +1499,54 @@ async function mergeIntoSelected(sourceGroupKey) {
 
 entryForm.addEventListener('submit', saveGroup);
 entryForm.querySelectorAll('input, select, textarea').forEach((field) => {
+    if (field.id === 'volumeUnit') {
+        field.dataset.previousUnit = field.value;
+    }
+
     field.addEventListener('input', () => {
+        if (field.id === 'volumeUnit') {
+            convertVolumeOnUnitChange(field);
+        }
+
         captureFormDraft();
-        if (field.id === 'gallons' || field.id === 'totalPrice') {
+        if (field.id === 'volume' || field.id === 'volumeUnit' || field.id === 'totalPrice') {
             renderPricePerGallon();
         }
 
-        if (field.id === 'gallons' || field.id === 'odometer' || field.id === 'vehicleId') {
+        if (field.id === 'volume' || field.id === 'volumeUnit' || field.id === 'odometer' || field.id === 'vehicleId') {
             validateCurrentGroup();
         }
     });
 
     field.addEventListener('blur', async () => {
-        if ((field.id === 'gallons' || field.id === 'totalPrice') && field instanceof HTMLInputElement) {
+        if ((field.id === 'volume' || field.id === 'totalPrice') && field instanceof HTMLInputElement) {
             unifyMathInputValue(field);
         }
 
-        if (field.id === 'gallons' || field.id === 'odometer' || field.id === 'vehicleId') {
+        if (field.id === 'volume' || field.id === 'volumeUnit' || field.id === 'odometer' || field.id === 'vehicleId') {
             await validateCurrentGroup();
         }
         await autosaveCurrentField();
     });
 });
+
+function convertVolumeOnUnitChange(select) {
+    const newUnit = select.value;
+    const previousUnit = select.dataset.previousUnit || 'gallons';
+    if (newUnit === previousUnit) {
+        return;
+    }
+
+    const volumeInput = document.getElementById('volume');
+    if (volumeInput instanceof HTMLInputElement) {
+        const value = numberOrNull(volumeInput.value);
+        if (value != null) {
+            volumeInput.value = newUnit === 'liters' ? gallonsToLiters(value) : litersToGallons(value);
+        }
+    }
+
+    select.dataset.previousUnit = newUnit;
+}
 
 const odometerField = document.getElementById('odometer');
 if (odometerField instanceof HTMLInputElement) {
