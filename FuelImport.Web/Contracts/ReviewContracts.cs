@@ -77,6 +77,7 @@ public class EventLogResponse
     public int? Odometer { get; set; }
     public decimal? MilesSincePrevious { get; set; }
     public decimal? CalculatedMpg { get; set; }
+    public bool HasImages { get; set; }
     public bool NeedsReview { get; set; }
     public ReviewStatus ReviewStatus { get; set; }
     public List<string> AnomalyFlags { get; set; } = [];

@@ -58,8 +58,12 @@ function filteredEvents() {
         }
     }
 
-    if (anomalyFilterEl instanceof HTMLSelectElement && anomalyFilterEl.value === 'onlyAnomalies') {
-        list = list.filter((item) => (item.anomalyFlags?.length ?? 0) > 0 && !item.anomalyAcknowledged);
+    if (anomalyFilterEl instanceof HTMLSelectElement) {
+        if (anomalyFilterEl.value === 'onlyAnomalies') {
+            list = list.filter((item) => (item.anomalyFlags?.length ?? 0) > 0 && !item.anomalyAcknowledged);
+        } else if (anomalyFilterEl.value === 'onlyWithoutImages') {
+            list = list.filter((item) => !item.hasImages);
+        }
     }
 
     return list;
@@ -154,6 +158,7 @@ function renderLog() {
             <td>
                 <div class="row-actions">
                     <a class="secondary" href="/?fuelEventId=${item.fuelEventId}">Edit</a>
+                    ${!item.hasImages ? `<button type="button" class="secondary" data-action="delete-orphan" data-fuel-event-id="${item.fuelEventId}">Delete</button>` : ''}
                     ${hasCallouts ? `<button type="button" class="secondary" data-action="toggle-ack" data-fuel-event-id="${item.fuelEventId}" data-acknowledged="${item.anomalyAcknowledged ? 'true' : 'false'}">${item.anomalyAcknowledged ? 'Unapprove' : 'Approve'}</button>` : ''}
                 </div>
             </td>
@@ -168,6 +173,32 @@ function renderLog() {
             toggleAnomalyAcknowledged(fuelEventId, acknowledged);
         });
     });
+
+    logBodyEl.querySelectorAll('[data-action="delete-orphan"]').forEach((button) => {
+        button.addEventListener('click', () => deleteImageLessEvent(Number(button.dataset.fuelEventId)));
+    });
+}
+
+async function deleteImageLessEvent(fuelEventId) {
+    if (!window.confirm('Delete this event? It has no linked images and cannot be restored.')) {
+        return;
+    }
+
+    renderStatus('Deleting event…');
+    try {
+        const response = await fetch(`/api/events/${fuelEventId}`, { method: 'DELETE' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        state.events = state.events.filter((event) => event.fuelEventId !== fuelEventId);
+        renderVehicleFilterOptions();
+        renderLog();
+        renderStatus('Image-less event deleted.');
+    } catch (error) {
+        console.error(error);
+        renderStatus('Unable to delete event.');
+    }
 }
 
 async function toggleAnomalyAcknowledged(fuelEventId, acknowledged) {

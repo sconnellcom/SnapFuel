@@ -611,6 +611,36 @@ app.MapDelete("/api/images/{id:int}", async (FuelImportDbContext db, int id, ILo
         affectedEvent.UpdatedAtUtc = DateTime.UtcNow;
     }
 
+    var affectedEventIds = links
+        .Select(link => link.FuelEventId)
+        .Concat(affectedEvents.Select(fuelEvent => fuelEvent.FuelEventId))
+        .Distinct()
+        .ToList();
+    var candidateEvents = await db.FuelEvents
+        .Where(fuelEvent => affectedEventIds.Contains(fuelEvent.FuelEventId))
+        .ToListAsync();
+    var eventIdsWithOtherImages = await db.FuelEventSourceImages
+        .Where(link => affectedEventIds.Contains(link.FuelEventId) && link.SourceImageId != id)
+        .Select(link => link.FuelEventId)
+        .Distinct()
+        .ToListAsync();
+    var orphanedEvents = candidateEvents
+        .Where(fuelEvent =>
+            !fuelEvent.PumpSourceImageId.HasValue &&
+            !fuelEvent.DashSourceImageId.HasValue &&
+            !eventIdsWithOtherImages.Contains(fuelEvent.FuelEventId))
+        .ToList();
+
+    if (orphanedEvents.Count > 0)
+    {
+        var orphanedEventIds = orphanedEvents.Select(fuelEvent => fuelEvent.FuelEventId).ToList();
+        var reviews = await db.HumanReviews
+            .Where(review => orphanedEventIds.Contains(review.FuelEventId))
+            .ToListAsync();
+        db.HumanReviews.RemoveRange(reviews);
+        db.FuelEvents.RemoveRange(orphanedEvents);
+    }
+
     if (!string.IsNullOrWhiteSpace(image.FilePath) && File.Exists(image.FilePath))
     {
         try
@@ -625,7 +655,37 @@ app.MapDelete("/api/images/{id:int}", async (FuelImportDbContext db, int id, ILo
 
     db.SourceImages.Remove(image);
     await db.SaveChangesAsync();
+
+    foreach (var vehicleId in orphanedEvents.Select(fuelEvent => fuelEvent.VehicleId).Distinct())
+    {
+        await RecomputeVehicleDerivedMetricsAsync(db, vehicleId);
+    }
+
+    await db.SaveChangesAsync();
     return Results.Ok();
+});
+
+app.MapDelete("/api/events/{id:int}", async (FuelImportDbContext db, int id) =>
+{
+    var fuelEvent = await db.FuelEvents.FirstOrDefaultAsync(fuelEvent => fuelEvent.FuelEventId == id);
+    if (fuelEvent is null)
+    {
+        return Results.NotFound();
+    }
+
+    var hasLinkedImages = await db.FuelEventSourceImages.AnyAsync(link => link.FuelEventId == id);
+    if (fuelEvent.PumpSourceImageId.HasValue || fuelEvent.DashSourceImageId.HasValue || hasLinkedImages)
+    {
+        return Results.BadRequest(new { message = "Only events with no images can be deleted here." });
+    }
+
+    var reviews = await db.HumanReviews.Where(review => review.FuelEventId == id).ToListAsync();
+    db.HumanReviews.RemoveRange(reviews);
+    db.FuelEvents.Remove(fuelEvent);
+    await db.SaveChangesAsync();
+    await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
 });
 
 app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id, ReviewUpdateRequest request) =>
@@ -776,6 +836,11 @@ app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
         .ToListAsync();
 
     var eventMetrics = BuildEventMetrics(events, vehicleMap);
+    var eventIdsWithLinkedImages = await db.FuelEventSourceImages
+        .AsNoTracking()
+        .Select(link => link.FuelEventId)
+        .Distinct()
+        .ToListAsync();
 
     var response = events
         .OrderByDescending(e => e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc)
@@ -801,6 +866,9 @@ app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
                 Odometer = fuelEvent.Odometer,
                 MilesSincePrevious = metrics.MilesSincePrevious,
                 CalculatedMpg = metrics.CalculatedMpg,
+                HasImages = fuelEvent.PumpSourceImageId.HasValue ||
+                    fuelEvent.DashSourceImageId.HasValue ||
+                    eventIdsWithLinkedImages.Contains(fuelEvent.FuelEventId),
                 NeedsReview = fuelEvent.NeedsReview,
                 ReviewStatus = fuelEvent.ReviewStatus,
                 AnomalyFlags = metrics.AnomalyFlags,
