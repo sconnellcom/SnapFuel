@@ -7,6 +7,9 @@ using FuelImport.Core.Services;
 using FuelImport.HuggingFace.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
 
 namespace FuelImport.HuggingFace.Services;
 
@@ -43,38 +46,46 @@ public class HuggingFaceVisionDetector(
             return detection;
         }
 
-        var fileInfo = new FileInfo(image.FilePath);
-        if (fileInfo.Length > _options.MaxImageBytes)
-        {
-            detection.ErrorMessage = $"The image is larger than the configured limit of {_options.MaxImageBytes:N0} bytes.";
-            return detection;
-        }
-
-        var bytes = await File.ReadAllBytesAsync(image.FilePath, cancellationToken);
-        var dataUri = $"data:{GetMimeType(image.FilePath)};base64,{Convert.ToBase64String(bytes)}";
-        var prompt = DetectionPromptBuilder.Build(estimates, vehicleHints);
-
-        var payload = new
-        {
-            model = _options.Model,
-            max_tokens = _options.MaxTokens,
-            temperature = _options.Temperature,
-            messages = new object[]
-            {
-                new
-                {
-                    role = "user",
-                    content = new object[]
-                    {
-                        new { type = "text", text = prompt },
-                        new { type = "image_url", image_url = new { url = dataUri } }
-                    }
-                }
-            }
-        };
-
+        string? temporaryUploadPath = null;
         try
         {
+            var uploadPath = image.FilePath;
+            if (new FileInfo(image.FilePath).Length > _options.ResizeAboveBytes && CanResize(image.FilePath))
+            {
+                temporaryUploadPath = await CreateResizedUploadAsync(image.FilePath, cancellationToken);
+                uploadPath = temporaryUploadPath;
+            }
+
+            var fileInfo = new FileInfo(uploadPath);
+            if (fileInfo.Length > _options.MaxImageBytes)
+            {
+                detection.ErrorMessage = $"The upload image is larger than the configured limit of {_options.MaxImageBytes:N0} bytes.";
+                return detection;
+            }
+
+            var bytes = await File.ReadAllBytesAsync(uploadPath, cancellationToken);
+            var dataUri = $"data:{GetMimeType(uploadPath)};base64,{Convert.ToBase64String(bytes)}";
+            var prompt = DetectionPromptBuilder.Build(estimates, vehicleHints);
+
+            var payload = new
+            {
+                model = _options.Model,
+                max_tokens = _options.MaxTokens,
+                temperature = _options.Temperature,
+                messages = new object[]
+                {
+                    new
+                    {
+                        role = "user",
+                        content = new object[]
+                        {
+                            new { type = "text", text = prompt },
+                            new { type = "image_url", image_url = new { url = dataUri } }
+                        }
+                    }
+                }
+            };
+
             using var request = new HttpRequestMessage(HttpMethod.Post, _options.Endpoint)
             {
                 Content = JsonContent.Create(payload)
@@ -111,6 +122,45 @@ public class HuggingFaceVisionDetector(
             logger.LogWarning(ex, "Hugging Face detection request failed for image {SourceImageId}.", image.SourceImageId);
             detection.ErrorMessage = "The model endpoint could not be reached.";
             return detection;
+        }
+        finally
+        {
+            if (temporaryUploadPath is not null)
+            {
+                File.Delete(temporaryUploadPath);
+            }
+        }
+    }
+
+    private static bool CanResize(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" or ".png" or ".webp" => true,
+        _ => false
+    };
+
+    private async Task<string> CreateResizedUploadAsync(string sourcePath, CancellationToken cancellationToken)
+    {
+        var temporaryPath = Path.Combine(Path.GetTempPath(), $"snapfuel-{Guid.NewGuid():N}.jpg");
+        try
+        {
+            using var source = await Image.LoadAsync(sourcePath, cancellationToken);
+            source.Mutate(context => context.Resize(new ResizeOptions
+            {
+                Mode = ResizeMode.Max,
+                Size = new Size(_options.MaxUploadImageDimension, _options.MaxUploadImageDimension)
+            }));
+
+            await source.SaveAsJpegAsync(temporaryPath, new JpegEncoder
+            {
+                Quality = _options.UploadJpegQuality
+            }, cancellationToken);
+
+            return temporaryPath;
+        }
+        catch
+        {
+            File.Delete(temporaryPath);
+            throw;
         }
     }
 

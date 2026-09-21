@@ -457,9 +457,9 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
         .Distinct()
         .ToListAsync();
 
-    if (existingLinkEventIds.Count > 1)
+    if (existingLinkEventIds.Count > 1 || (request.FuelEventId.HasValue && existingLinkEventIds.Count == 1 && request.FuelEventId != existingLinkEventIds[0]))
     {
-        return Results.BadRequest(new { message = "Selected images already belong to different fuel events." });
+        return Results.BadRequest(new { message = "Selected images already belong to a different fuel event." });
     }
 
     int? targetFuelEventId = request.FuelEventId ?? (existingLinkEventIds.Count == 1 ? existingLinkEventIds[0] : null);
@@ -935,7 +935,9 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
     var eventMetrics = BuildEventMetrics(
         fuelEvents.OrderBy(e => e.EventTimeUtc ?? e.EventTimeLocal ?? e.CreatedAtUtc).ThenBy(e => e.FuelEventId).ToList(),
         vehiclesById);
-    var linkedEventByImageId = links.ToDictionary(link => link.SourceImageId, link => link.FuelEventId);
+    var linkedEventByImageId = links
+        .GroupBy(link => link.SourceImageId)
+        .ToDictionary(group => group.Key, group => group.Max(link => link.FuelEventId));
 
     foreach (var fuelEvent in fuelEvents)
     {
@@ -967,7 +969,9 @@ static async Task<List<ManualReviewGroupResponse>> LoadManualReviewGroupsAsync(
                 try
                 {
                     var detections = JsonSerializer.Deserialize<List<ImageDetection>>(fuelEvent.DetectionDetailsJson) ?? [];
-                    detectionsByImageId = detections.ToDictionary(detection => detection.SourceImageId);
+                    detectionsByImageId = detections
+                        .GroupBy(detection => detection.SourceImageId)
+                        .ToDictionary(group => group.Key, group => group.Last());
                 }
                 catch (JsonException)
                 {

@@ -45,7 +45,9 @@ public class AutoDetectionService(
         var fuelEvents = await db.FuelEvents.AsNoTracking().ToListAsync(cancellationToken);
         var vehicles = await db.Vehicles.AsNoTracking().ToListAsync(cancellationToken);
 
-        var linkedEventByImageId = links.ToDictionary(link => link.SourceImageId, link => link.FuelEventId);
+        var linkedEventByImageId = links
+            .GroupBy(link => link.SourceImageId)
+            .ToDictionary(group => group.Key, group => group.Max(link => link.FuelEventId));
         foreach (var fuelEvent in fuelEvents)
         {
             if (fuelEvent.PumpSourceImageId.HasValue)

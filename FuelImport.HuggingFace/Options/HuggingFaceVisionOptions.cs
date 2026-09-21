@@ -20,4 +20,13 @@ public class HuggingFaceVisionOptions
 
     /// <summary>Images larger than this are skipped instead of being uploaded.</summary>
     public int MaxImageBytes { get; set; } = 12 * 1024 * 1024;
+
+    /// <summary>Images larger than this are temporarily resized before upload.</summary>
+    public int ResizeAboveBytes { get; set; } = 2 * 1024 * 1024;
+
+    /// <summary>Maximum pixel length of the temporary upload image's longest side.</summary>
+    public int MaxUploadImageDimension { get; set; } = 2048;
+
+    /// <summary>JPEG quality for the temporary upload image.</summary>
+    public int UploadJpegQuality { get; set; } = 88;
 }

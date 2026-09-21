@@ -311,7 +311,7 @@ function activeGroup() {
 function updatePendingSnapshot() {
     state.pendingSnapshotGroupKeys = new Set(
         state.groups
-            .filter((group) => group.fuelEventId == null)
+            .filter((group) => isPending(group))
             .map((group) => group.groupKey)
     );
 }
@@ -328,8 +328,12 @@ function isReviewed(group) {
     return group.fuelEventId != null && group.reviewStatus === 'Reviewed';
 }
 
+function isPending(group) {
+    return !isReviewed(group) && !isAwaitingApproval(group);
+}
+
 function getGroupBadge(group) {
-    if (group.fuelEventId == null) {
+    if (isPending(group)) {
         return { label: 'Pending', className: 'badge-pending' };
     }
 
@@ -359,7 +363,7 @@ function getVisibleGroups() {
 
     let groups = state.groups;
     if (state.queueFilter === 'pending') {
-        groups = groups.filter((group) => state.pendingSnapshotGroupKeys.has(group.groupKey) || group.fuelEventId == null);
+        groups = groups.filter((group) => state.pendingSnapshotGroupKeys.has(group.groupKey) || isPending(group));
     }
     else if (state.queueFilter === 'auto') {
         groups = groups.filter((group) => state.autoSnapshotGroupKeys.has(group.groupKey) || isAwaitingApproval(group));
@@ -433,7 +437,7 @@ function isOutstandingForFilter(group) {
         return !isGroupComplete(group);
     }
 
-    return group.fuelEventId == null;
+    return isPending(group);
 }
 
 function getDraft(groupKey) {
