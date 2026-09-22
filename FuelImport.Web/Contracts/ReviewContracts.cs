@@ -196,6 +196,9 @@ public class ManualReviewSaveRequest
 
     /// <summary>False for structural saves (e.g. before a split/merge) that must not count as a human review.</summary>
     public bool MarkReviewed { get; set; } = true;
+
+    /// <summary>Explicitly changes the review state; omitted to preserve the current state.</summary>
+    public bool? Reviewed { get; set; }
 }
 
 public class ManualReviewSplitRequest

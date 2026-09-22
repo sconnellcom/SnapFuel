@@ -7,11 +7,12 @@ const vehicleSelect = document.getElementById('vehicleId');
 const groupMetaEl = document.getElementById('groupMeta');
 const pricePerGallonDisplayEl = document.getElementById('pricePerGallonDisplay');
 const detectionCalloutEl = document.getElementById('detectionCallout');
-const saveButton = document.getElementById('saveButton');
+const saveStatusEl = document.getElementById('saveStatus');
 const scanButton = document.getElementById('scanButton');
 const autoDetectButton = document.getElementById('autoDetectButton');
-const autoDetectGroupButton = document.getElementById('autoDetectGroupButton');
 const refreshButton = document.getElementById('refreshButton');
+const reviewToggleButton = document.getElementById('reviewToggleButton');
+let savedStatusTimeoutId = null;
 
 let initialReviewerName = '';
 try {
@@ -62,7 +63,26 @@ const state = {
 };
 
 function renderStatus(message) {
+    if (savedStatusTimeoutId != null) {
+        window.clearTimeout(savedStatusTimeoutId);
+        savedStatusTimeoutId = null;
+    }
+    if (saveStatusEl instanceof HTMLElement) {
+        saveStatusEl.textContent = '';
+    }
     statusEl.textContent = message;
+}
+
+function renderSavedStatus() {
+    if (saveStatusEl instanceof HTMLElement) {
+        saveStatusEl.textContent = 'Saved.';
+    }
+    savedStatusTimeoutId = window.setTimeout(() => {
+        if (saveStatusEl instanceof HTMLElement) {
+            saveStatusEl.textContent = '';
+        }
+        savedStatusTimeoutId = null;
+    }, 1000);
 }
 
 function numberOrNull(value) {
@@ -484,6 +504,12 @@ function updateSplitButtonsVisibility(groupKey) {
 
 function getGroupFormState(group) {
     return getDraft(group.groupKey) ?? {
+        ...getPersistedGroupFormState(group)
+    };
+}
+
+function getPersistedGroupFormState(group) {
+    return {
         fuelEventId: group.fuelEventId,
         imageIds: group.images.map((image) => image.sourceImageId),
         vehicleId: group.vehicleId ?? null,
@@ -822,10 +848,12 @@ function renderQueue() {
         const autoStatusMarkup = autoStatus
             ? `<div class="queue-meta queue-detecting"><span class="spinner"></span>${autoStatus === 'running' ? 'Detecting…' : 'Queued for auto detect'}</div>`
             : '';
+        const isSelected = group.groupKey === state.selectedGroupKey;
+        const autoDetectLabel = autoStatus === 'running' ? 'Detecting…' : (autoStatus === 'queued' ? 'Queued…' : 'Auto detect');
 
         return `
     ${dayHeader}
-    <div class="queue-item ${group.groupKey === state.selectedGroupKey ? 'active' : ''}" data-group-key="${group.groupKey}">
+    <div class="queue-item ${isSelected ? 'active' : ''}" data-group-key="${group.groupKey}">
       <div class="queue-title">
                 <strong class="queue-title-main">${showGreenCheck ? '<span class="queue-check">✓</span>' : ''}<span>${escapeHtml(title)}</span></strong>
         <span class="badge ${badge.className}">${badge.label}</span>
@@ -835,8 +863,10 @@ function renderQueue() {
             <div class="queue-meta"><span class="${imageCountClass}">${group.images.length} image${group.images.length === 1 ? '' : 's'}</span> - <span class="${minutesClass}">${formatMinutesSpread(group.startedAtUtc, group.endedAtUtc)}</span>, <span class="${milesClass}">${spreadDistance}</span></div>
             <div class="queue-meta">Dollars: ${dollarsText ?? 'not set'}${ppg != null ? ` (${escapeHtml(`$${ppg.toFixed(3)}`)})` : ''}</div>
             ${formState.odometer != null ? `<div class="queue-meta">Odometer: ${formState.odometer}</div>` : ''}
-      <div class="queue-actions ${state.selectedGroupKey && group.groupKey === state.selectedGroupKey ? 'hidden' : ''}">
-        <button type="button" class="secondary" data-action="merge-into-selected" data-source-group-key="${group.groupKey}">Merge into selected</button>
+            <div class="queue-actions ${isSelected ? 'selected' : ''}">
+                ${isSelected
+                ? `<button type="button" class="secondary" data-action="auto-detect-group" data-group-key="${group.groupKey}" ${autoStatus ? 'disabled' : ''}>${autoDetectLabel}</button>`
+                : `<button type="button" class="secondary" data-action="merge-into-selected" data-source-group-key="${group.groupKey}">Merge into selected</button>`}
       </div>
     </div>
     `;
@@ -864,6 +894,13 @@ function renderQueue() {
         button.addEventListener('click', async (event) => {
             event.stopPropagation();
             await mergeIntoSelected(button.dataset.sourceGroupKey);
+        });
+    });
+
+    groupListEl.querySelectorAll('[data-action="auto-detect-group"]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            enqueueAutoDetect(button.dataset.groupKey);
         });
     });
 
@@ -1044,13 +1081,14 @@ function renderWorkspace() {
     groupMetaEl.textContent = group.fuelEventId ? `Editing event #${group.fuelEventId}` : `${group.images.length} linked image${group.images.length === 1 ? '' : 's'}`;
     renderDetectionCallout(group);
     renderAnomalyCallouts(group);
-    updateAutoDetectGroupButton();
     renderPricePerGallon(group.pricePerGallon);
 }
 
 function renderDetectionCallout(group) {
-    if (saveButton instanceof HTMLButtonElement) {
-        saveButton.textContent = isAwaitingApproval(group) ? 'Approve group' : 'Save group';
+    if (reviewToggleButton instanceof HTMLButtonElement) {
+        const reviewed = isReviewed(group);
+        reviewToggleButton.textContent = reviewed ? 'Unapprove group' : 'Approve and Next';
+        reviewToggleButton.classList.toggle('approve', !reviewed);
     }
 
     if (!(detectionCalloutEl instanceof HTMLElement)) {
@@ -1314,7 +1352,11 @@ async function persistCurrentGroup(options = {}) {
         return false;
     }
 
-    const requestBody = options.markReviewed === false ? { ...payload, markReviewed: false } : payload;
+    const requestBody = {
+        ...payload,
+        markReviewed: options.markReviewed ?? false,
+        ...(options.reviewed === undefined ? {} : { reviewed: options.reviewed })
+    };
 
     if (state.saveInFlightByGroup[group.groupKey]) {
         state.pendingAutosaveByGroup[group.groupKey] = true;
@@ -1356,8 +1398,8 @@ async function persistCurrentGroup(options = {}) {
         renderQueue();
         if (!options.silent) {
             renderWorkspace();
-            renderStatus(options.successMessage || 'Group saved.');
         }
+        renderSavedStatus();
 
         if (options.reloadAfterSave) {
             await loadData(group.groupKey, state.activeImageId);
@@ -1379,12 +1421,22 @@ async function persistCurrentGroup(options = {}) {
 
 async function saveGroup(event) {
     event.preventDefault();
-    const currentGroupKey = state.selectedGroupKey;
-    const saved = await persistCurrentGroup({ statusMessage: 'Saving group…', successMessage: 'Group saved.' });
-    if (!saved || !currentGroupKey) {
+    const group = activeGroup();
+    if (!group) {
         return;
     }
 
+    const saved = await persistCurrentGroup({
+        reviewed: true,
+        statusMessage: 'Approving group…'
+    });
+
+    if (saved) {
+        advanceToNextGroup(group.groupKey);
+    }
+}
+
+function advanceToNextGroup(currentGroupKey) {
     const nextGroupKey = getNextPendingGroupKey(currentGroupKey);
     if (nextGroupKey && nextGroupKey !== currentGroupKey) {
         state.selectedGroupKey = nextGroupKey;
@@ -1407,13 +1459,30 @@ async function saveGroup(event) {
     }
 }
 
+async function toggleGroupReviewed() {
+    const group = activeGroup();
+    if (!group) {
+        return;
+    }
+
+    const reviewed = !isReviewed(group);
+    const saved = await persistCurrentGroup({
+        reviewed,
+        statusMessage: reviewed ? 'Approving group…' : 'Returning group to review…'
+    });
+
+    if (saved && reviewed) {
+        advanceToNextGroup(group.groupKey);
+    }
+}
+
 async function autosaveCurrentField() {
     const group = activeGroup();
     if (!group) {
         return;
     }
 
-    const baseline = getGroupFormState(group);
+    const baseline = getPersistedGroupFormState(group);
     const draft = captureFormDraft();
     if (!draft) {
         return;
@@ -1500,6 +1569,7 @@ async function mergeIntoSelected(sourceGroupKey) {
 }
 
 entryForm.addEventListener('submit', saveGroup);
+reviewToggleButton?.addEventListener('click', toggleGroupReviewed);
 entryForm.querySelectorAll('input, select, textarea').forEach((field) => {
     if (field.id === 'volumeUnit') {
         field.dataset.previousUnit = field.value;
@@ -1617,18 +1687,6 @@ if (autoDetectButton) {
     });
 }
 
-if (autoDetectGroupButton) {
-    autoDetectGroupButton.addEventListener('click', () => {
-        const group = activeGroup();
-        if (!group) {
-            renderStatus('Select a group first.');
-            return;
-        }
-
-        enqueueAutoDetect(group.groupKey);
-    });
-}
-
 function getAutoDetectStatus(groupKey) {
     return groupKey ? state.autoDetectStatusByGroup[groupKey] ?? null : null;
 }
@@ -1644,7 +1702,6 @@ function enqueueAutoDetect(groupKey) {
     state.autoDetectQueue.push(groupKey);
 
     renderQueue();
-    updateAutoDetectGroupButton();
     renderStatus(state.autoDetectQueue.length > 1 || state.autoDetectWorkerActive
         ? `Queued for auto detect (${state.autoDetectQueue.length} waiting).`
         : 'Auto detecting this group…');
@@ -1664,14 +1721,12 @@ async function processAutoDetectQueue() {
             const groupKey = state.autoDetectQueue.shift();
             state.autoDetectStatusByGroup[groupKey] = 'running';
             renderQueue();
-            updateAutoDetectGroupButton();
 
             try {
                 await detectSingleGroup(groupKey);
             } finally {
                 delete state.autoDetectStatusByGroup[groupKey];
                 renderQueue();
-                updateAutoDetectGroupButton();
             }
         }
     } finally {
@@ -1731,31 +1786,6 @@ async function refreshGroupsQuietly(detectedGroupKey) {
 
         renderWorkspace();
     }
-}
-
-function updateAutoDetectGroupButton() {
-    if (!(autoDetectGroupButton instanceof HTMLButtonElement)) {
-        return;
-    }
-
-    const status = getAutoDetectStatus(state.selectedGroupKey);
-    if (status === 'running') {
-        autoDetectGroupButton.disabled = true;
-        autoDetectGroupButton.setAttribute('aria-busy', 'true');
-        autoDetectGroupButton.innerHTML = '<span class="spinner"></span>Detecting…';
-        return;
-    }
-
-    if (status === 'queued') {
-        autoDetectGroupButton.disabled = true;
-        autoDetectGroupButton.setAttribute('aria-busy', 'true');
-        autoDetectGroupButton.innerHTML = '<span class="spinner"></span>Queued…';
-        return;
-    }
-
-    autoDetectGroupButton.disabled = false;
-    autoDetectGroupButton.removeAttribute('aria-busy');
-    autoDetectGroupButton.textContent = 'Auto detect this group';
 }
 
 function setButtonBusy(button, busyLabel) {

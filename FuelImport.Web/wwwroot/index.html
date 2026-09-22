@@ -135,6 +135,11 @@
       border: 1px solid var(--border);
     }
 
+    button.approve {
+      background: var(--success);
+      color: #f7fff8;
+    }
+
     button:disabled {
       opacity: 0.6;
       cursor: progress;
@@ -311,6 +316,10 @@
       display: flex;
       justify-content: flex-end;
       margin-top: 10px;
+    }
+
+    .queue-actions.selected {
+      justify-content: flex-start;
     }
 
     .queue-actions.hidden {
@@ -648,6 +657,13 @@
       gap: 12px;
     }
 
+    .save-status {
+      color: var(--success);
+      font-size: 0.9rem;
+      font-weight: 700;
+      min-width: 52px;
+    }
+
     .thumb-time {
       margin-top: 6px;
       color: var(--muted);
@@ -908,8 +924,8 @@
 
             <div class="actions">
               <div id="groupMeta" class="group-meta"></div>
-              <button id="autoDetectGroupButton" type="button" class="secondary">Auto detect this group</button>
-              <button id="saveButton" type="submit">Save group</button>
+              <div id="saveStatus" class="save-status" role="status" aria-live="polite"></div>
+              <button id="reviewToggleButton" type="button" class="secondary">Approve group</button>
             </div>
           </form>
         </div>
@@ -917,7 +933,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=7"></script>
+  <script src="/app.js?v=10"></script>
 </body>
 
 </html>

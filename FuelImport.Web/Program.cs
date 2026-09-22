@@ -505,12 +505,19 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     fuelEvent.Longitude = Average(images.Select(image => image.Longitude));
     fuelEvent.PumpSourceImageId = images.FirstOrDefault(image => image.ImageTypeCandidate == ImageType.Pump)?.SourceImageId;
     fuelEvent.DashSourceImageId = images.FirstOrDefault(image => image.ImageTypeCandidate == ImageType.Dashboard)?.SourceImageId;
-    if (request.MarkReviewed)
+    if (request.Reviewed == true || (request.Reviewed is null && request.MarkReviewed))
     {
         fuelEvent.OverallConfidence = 1.0m;
         fuelEvent.NeedsReview = false;
         fuelEvent.ReviewStatus = ReviewStatus.Reviewed;
         fuelEvent.ReviewReason = null;
+    }
+    else if (request.Reviewed == false)
+    {
+        fuelEvent.NeedsReview = true;
+        fuelEvent.ReviewStatus = fuelEvent.EntrySource == EntrySource.AutoDetected
+            ? ReviewStatus.AutoDetected
+            : ReviewStatus.Pending;
     }
 
     fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
@@ -546,7 +553,7 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
         image.ProcessingStatus = ProcessingStatus.Completed;
     }
 
-    if (request.MarkReviewed)
+    if (request.Reviewed == true || (request.Reviewed is null && request.MarkReviewed))
     {
         db.HumanReviews.Add(new HumanReview
         {
