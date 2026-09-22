@@ -521,12 +521,6 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
         await db.SaveChangesAsync();
     }
 
-    await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
-    if (previousVehicleId.HasValue && previousVehicleId != fuelEvent.VehicleId)
-    {
-        await RecomputeVehicleDerivedMetricsAsync(db, previousVehicleId);
-    }
-
     var existingLinks = await db.FuelEventSourceImages
         .Where(link => link.FuelEventId == fuelEvent.FuelEventId)
         .ToListAsync();
@@ -568,7 +562,33 @@ app.MapPost("/api/manual/groups/save", async (FuelImportDbContext db, ManualRevi
     }
 
     await db.SaveChangesAsync();
-    return Results.Ok(fuelEvent);
+
+    await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
+    if (previousVehicleId.HasValue && previousVehicleId != fuelEvent.VehicleId)
+    {
+        await RecomputeVehicleDerivedMetricsAsync(db, previousVehicleId);
+    }
+
+    await db.SaveChangesAsync();
+
+    var vehiclesById = await db.Vehicles.AsNoTracking().ToDictionaryAsync(vehicle => vehicle.VehicleId);
+    var events = await db.FuelEvents
+        .AsNoTracking()
+        .OrderBy(fuelEvent => fuelEvent.EventTimeUtc ?? fuelEvent.EventTimeLocal ?? fuelEvent.CreatedAtUtc)
+        .ThenBy(fuelEvent => fuelEvent.FuelEventId)
+        .ToListAsync();
+    var anomalyFlags = BuildEventMetrics(events, vehiclesById)
+        .TryGetValue(fuelEvent.FuelEventId, out var metrics)
+            ? metrics.AnomalyFlags
+            : [];
+
+    return Results.Ok(new
+    {
+        fuelEvent.FuelEventId,
+        fuelEvent.ReviewStatus,
+        fuelEvent.PricePerGallon,
+        AnomalyFlags = anomalyFlags
+    });
 });
 
 app.MapGet("/api/images/{id:int}", async (FuelImportDbContext db, int id) =>
@@ -726,12 +746,6 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
     fuelEvent.NeedsReview = reviewStatus != ReviewStatus.Reviewed;
     fuelEvent.UpdatedAtUtc = DateTime.UtcNow;
 
-    await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
-    if (previousVehicleId.HasValue && previousVehicleId != fuelEvent.VehicleId)
-    {
-        await RecomputeVehicleDerivedMetricsAsync(db, previousVehicleId);
-    }
-
     db.HumanReviews.Add(new HumanReview
     {
         FuelEventId = fuelEvent.FuelEventId,
@@ -743,6 +757,13 @@ app.MapPost("/api/events/{id:int}/review", async (FuelImportDbContext db, int id
         CorrectedValuesJson = JsonSerializer.Serialize(request),
         Notes = NormalizeOptional(request.Notes)
     });
+
+    await db.SaveChangesAsync();
+    await RecomputeVehicleDerivedMetricsAsync(db, fuelEvent.VehicleId);
+    if (previousVehicleId.HasValue && previousVehicleId != fuelEvent.VehicleId)
+    {
+        await RecomputeVehicleDerivedMetricsAsync(db, previousVehicleId);
+    }
 
     await db.SaveChangesAsync();
     return Results.Ok(fuelEvent);

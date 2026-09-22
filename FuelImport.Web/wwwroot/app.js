@@ -1294,6 +1294,8 @@ function updateLocalGroupFromPayload(groupKey, payload, savedEvent) {
     group.notes = payload.notes;
     group.reviewStatus = savedEvent?.reviewStatus ?? 'Reviewed';
     group.pricePerGallon = savedEvent?.pricePerGallon ?? (payload.gallons && payload.totalPrice ? payload.totalPrice / payload.gallons : null);
+    group.anomalyFlags = savedEvent?.anomalyFlags ?? group.anomalyFlags;
+    delete state.liveCalloutsByGroup[groupKey];
 }
 
 async function persistCurrentGroup(options = {}) {
