@@ -197,11 +197,16 @@ function getMetricPoints(events, key) {
                 return null;
             }
 
+            const isReviewed = eventItem.reviewStatus === 'Reviewed' && eventItem.needsReview !== true;
+
             return {
                 index,
                 value: numeric,
                 timeLabel: formatDate(eventItem.eventTimeUtc, eventItem.eventTimeLocal),
-                fuelEventId: eventItem.fuelEventId
+                fuelEventId: eventItem.fuelEventId,
+                reviewStatus: eventItem.reviewStatus,
+                needsReview: !!eventItem.needsReview,
+                isReviewed
             };
         })
         .filter((point) => point != null);
@@ -241,11 +246,15 @@ function createChartSvg(points, color, formatValue) {
         <text class="chart-label" x="${padLeft - 4}" y="${padTop + 10}" text-anchor="end">${escapeHtml(formatValue(max))}</text>
         <text class="chart-label" x="${padLeft - 4}" y="${height - padBottom + 2}" text-anchor="end">${escapeHtml(formatValue(min))}</text>
         <path class="chart-line" d="${path}" style="stroke:${color};" />
-        ${mapped.map((point) => `
-            <circle class="chart-point" data-fuel-event-id="${point.fuelEventId}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3.5" style="fill:${color};">
-                <title>${escapeHtml(point.timeLabel)} | ${escapeHtml(formatValue(point.value))} | event #${point.fuelEventId}</title>
+        ${mapped.map((point) => {
+        const pointColor = point.isReviewed ? color : '#d64040';
+        const pointStatus = point.isReviewed ? 'Reviewed' : (point.reviewStatus ?? 'Pending');
+        return `
+            <circle class="chart-point" data-fuel-event-id="${point.fuelEventId}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3.5" style="fill:${pointColor};">
+                <title>${escapeHtml(point.timeLabel)} | ${escapeHtml(formatValue(point.value))} | ${escapeHtml(pointStatus)} | event #${point.fuelEventId}</title>
             </circle>
-        `).join('')}
+        `;
+    }).join('')}
     </svg>
     `;
 }
