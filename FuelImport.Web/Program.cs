@@ -43,6 +43,7 @@ builder.Services.AddScoped<ImageImportService>();
 builder.Services.AddScoped(_ => new ManualReviewGroupingService(TimeSpan.FromMinutes(15), 0.40d));
 builder.Services.AddScoped(serviceProvider =>
     new DetectionEstimator(serviceProvider.GetRequiredService<IOptions<AutoDetectOptions>>().Value));
+builder.Services.AddSingleton<AutoDetectProgressTracker>();
 builder.Services.AddScoped<AutoDetectionService>();
 builder.Services.AddHttpClient<IVisionAutoDetector, HuggingFaceVisionDetector>((serviceProvider, client) =>
 {
@@ -123,11 +124,18 @@ app.MapPost("/api/autodetect/run", async (AutoDetectionService autoDetectionServ
         request?.GroupKey,
         request?.RedetectExisting ?? false,
         request?.Limit,
+        request?.ProgressId,
         ct);
 
     return string.IsNullOrEmpty(result.ErrorMessage)
         ? Results.Ok(result)
         : Results.BadRequest(result);
+});
+
+app.MapGet("/api/autodetect/progress/{progressId}", (AutoDetectProgressTracker progressTracker, string progressId) =>
+{
+    var progress = progressTracker.Get(progressId);
+    return progress is null ? Results.NotFound() : Results.Ok(progress);
 });
 
 app.MapGet("/api/events", async (FuelImportDbContext db, bool? needsReview) =>

@@ -11,7 +11,7 @@ const saveStatusEl = document.getElementById('saveStatus');
 const scanButton = document.getElementById('scanButton');
 const autoDetectButton = document.getElementById('autoDetectButton');
 const refreshButton = document.getElementById('refreshButton');
-const reviewToggleButton = document.getElementById('reviewToggleButton');
+const reviewToggleInput = document.getElementById('reviewToggleInput');
 let savedStatusTimeoutId = null;
 
 let initialReviewerName = '';
@@ -1085,10 +1085,8 @@ function renderWorkspace() {
 }
 
 function renderDetectionCallout(group) {
-    if (reviewToggleButton instanceof HTMLButtonElement) {
-        const reviewed = isReviewed(group);
-        reviewToggleButton.textContent = reviewed ? 'Unapprove group' : 'Approve and Next';
-        reviewToggleButton.classList.toggle('approve', !reviewed);
+    if (reviewToggleInput instanceof HTMLInputElement) {
+        reviewToggleInput.checked = isReviewed(group);
     }
 
     if (!(detectionCalloutEl instanceof HTMLElement)) {
@@ -1459,21 +1457,24 @@ function advanceToNextGroup(currentGroupKey) {
     }
 }
 
-async function toggleGroupReviewed() {
+async function saveGroupReviewedState() {
     const group = activeGroup();
-    if (!group) {
+    if (!group || !(reviewToggleInput instanceof HTMLInputElement)) {
         return;
     }
 
-    const reviewed = !isReviewed(group);
+    const previousReviewed = isReviewed(group);
+    const reviewed = reviewToggleInput.checked;
+    reviewToggleInput.disabled = true;
     const saved = await persistCurrentGroup({
         reviewed,
         statusMessage: reviewed ? 'Approving group…' : 'Returning group to review…'
     });
 
-    if (saved && reviewed) {
-        advanceToNextGroup(group.groupKey);
+    if (!saved) {
+        reviewToggleInput.checked = previousReviewed;
     }
+    reviewToggleInput.disabled = false;
 }
 
 async function autosaveCurrentField() {
@@ -1569,8 +1570,25 @@ async function mergeIntoSelected(sourceGroupKey) {
 }
 
 entryForm.addEventListener('submit', saveGroup);
-reviewToggleButton?.addEventListener('click', toggleGroupReviewed);
+entryForm.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter' || event.isComposing || event.repeat) {
+        return;
+    }
+
+    const field = event.target;
+    const singleLineTypes = ['text', 'number', 'email', 'search', 'tel', 'url'];
+    if (!(field instanceof HTMLInputElement) || !singleLineTypes.includes(field.type)) {
+        return;
+    }
+
+    await saveGroup(event);
+});
+reviewToggleInput?.addEventListener('change', saveGroupReviewedState);
 entryForm.querySelectorAll('input, select, textarea').forEach((field) => {
+    if (field.id === 'reviewToggleInput') {
+        return;
+    }
+
     if (field.id === 'volumeUnit') {
         field.dataset.previousUnit = field.value;
     }
@@ -1673,7 +1691,10 @@ if (autoDetectButton) {
             return;
         }
 
-        const result = await runAutoDetect({}, autoDetectButton, 'Auto detecting values from photos…');
+        const progressId = createProgressId();
+        const stopProgress = trackAutoDetectProgress(progressId);
+        const result = await runAutoDetect({ progressId }, autoDetectButton, 'Auto detecting values from photos…');
+        stopProgress();
         if (!result) {
             return;
         }
@@ -1735,11 +1756,13 @@ async function processAutoDetectQueue() {
 }
 
 async function detectSingleGroup(groupKey) {
+    const progressId = createProgressId();
+    const stopProgress = trackAutoDetectProgress(progressId);
     try {
         const response = await fetch('/api/autodetect/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ groupKey, redetectExisting: true })
+            body: JSON.stringify({ groupKey, redetectExisting: true, progressId })
         });
 
         const result = await response.json();
@@ -1757,7 +1780,44 @@ async function detectSingleGroup(groupKey) {
     } catch (error) {
         console.error(error);
         renderStatus(`Auto detect failed: ${error.message}`);
+    } finally {
+        stopProgress();
     }
+}
+
+function createProgressId() {
+    return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function trackAutoDetectProgress(progressId) {
+    let stopped = false;
+    let timerId = null;
+
+    const poll = async () => {
+        try {
+            const response = await fetch(`/api/autodetect/progress/${encodeURIComponent(progressId)}`);
+            if (response.ok) {
+                const progress = await response.json();
+                if (!stopped) {
+                    renderStatus(`Auto detecting values from photos… ${progress.processedPhotos} of ${progress.totalPhotos} photos processed.`);
+                }
+            }
+        } catch (error) {
+            console.debug('Unable to read auto detect progress.', error);
+        } finally {
+            if (!stopped) {
+                timerId = window.setTimeout(poll, 1000);
+            }
+        }
+    };
+
+    void poll();
+    return () => {
+        stopped = true;
+        if (timerId != null) {
+            window.clearTimeout(timerId);
+        }
+    };
 }
 
 /// Refreshes queue data without stealing the selection or clobbering a form the user is filling in.

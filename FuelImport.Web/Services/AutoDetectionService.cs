@@ -18,12 +18,18 @@ public class AutoDetectionService(
     ManualReviewGroupingService groupingService,
     IVisionAutoDetector detector,
     DetectionEstimator estimator,
+    AutoDetectProgressTracker progressTracker,
     IOptions<AutoDetectOptions> autoDetectOptions,
     ILogger<AutoDetectionService> logger)
 {
     private readonly AutoDetectOptions _options = autoDetectOptions.Value;
 
-    public async Task<AutoDetectRunResult> RunAsync(string? groupKey, bool redetectExisting, int? limit, CancellationToken cancellationToken = default)
+    public async Task<AutoDetectRunResult> RunAsync(
+        string? groupKey,
+        bool redetectExisting,
+        int? limit,
+        string? progressId,
+        CancellationToken cancellationToken = default)
     {
         var result = new AutoDetectRunResult();
 
@@ -69,25 +75,33 @@ public class AutoDetectionService(
             .Take(Math.Clamp(limit ?? _options.MaxGroupsPerRun, 1, _options.MaxGroupsPerRun))
             .ToList();
 
-        foreach (var group in candidates)
+        progressTracker.Start(progressId, candidates.Sum(group => group.Images.Count));
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            result.GroupsExamined++;
+            foreach (var group in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                result.GroupsExamined++;
 
-            var groupResult = await DetectGroupAsync(group, vehicles, cancellationToken);
-            result.Groups.Add(groupResult);
-            if (groupResult.Succeeded)
-            {
-                result.GroupsDetected++;
+                var groupResult = await DetectGroupAsync(group, vehicles, progressId, cancellationToken);
+                result.Groups.Add(groupResult);
+                if (groupResult.Succeeded)
+                {
+                    result.GroupsDetected++;
+                }
+                else if (groupResult.WasSplit)
+                {
+                    result.GroupsSplit++;
+                }
+                else
+                {
+                    result.GroupsFailed++;
+                }
             }
-            else if (groupResult.WasSplit)
-            {
-                result.GroupsSplit++;
-            }
-            else
-            {
-                result.GroupsFailed++;
-            }
+        }
+        finally
+        {
+            progressTracker.Complete(progressId);
         }
 
         return result;
@@ -118,7 +132,11 @@ public class AutoDetectionService(
         return targetsSingleGroup || fuelEvent.ReviewStatus != ReviewStatus.Reviewed;
     }
 
-    private async Task<GroupDetectionResult> DetectGroupAsync(ManualReviewGroup group, IReadOnlyCollection<Vehicle> vehicles, CancellationToken cancellationToken)
+    private async Task<GroupDetectionResult> DetectGroupAsync(
+        ManualReviewGroup group,
+        IReadOnlyCollection<Vehicle> vehicles,
+        string? progressId,
+        CancellationToken cancellationToken)
     {
         var groupResult = new GroupDetectionResult
         {
@@ -164,12 +182,25 @@ public class AutoDetectionService(
             })
             .ToList();
 
-        foreach (var image in orderedImages)
+        var maxConcurrency = Math.Clamp(_options.MaxConcurrentImages, 1, orderedImages.Count);
+        using var concurrencyGate = new SemaphoreSlim(maxConcurrency);
+        var detectionTasks = orderedImages.Select(async image =>
         {
-            var detection = await detector.DetectAsync(image, estimates, hints, cancellationToken);
-            detection.Warnings.AddRange(estimator.Validate(detection, estimates));
-            groupResult.Images.Add(detection);
-        }
+            await concurrencyGate.WaitAsync(cancellationToken);
+            try
+            {
+                var detection = await detector.DetectAsync(image, estimates, hints, cancellationToken);
+                detection.Warnings.AddRange(estimator.Validate(detection, estimates));
+                return detection;
+            }
+            finally
+            {
+                progressTracker.Advance(progressId);
+                concurrencyGate.Release();
+            }
+        });
+
+        groupResult.Images.AddRange(await Task.WhenAll(detectionTasks));
 
         var usable = groupResult.Images.Where(detection => detection.ErrorMessage is null).ToList();
         if (usable.Count == 0)

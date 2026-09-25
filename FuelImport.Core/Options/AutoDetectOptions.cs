@@ -26,6 +26,9 @@ public class AutoDetectOptions
     /// <summary>Maximum number of image groups processed by a single auto-detect run.</summary>
     public int MaxGroupsPerRun { get; set; } = 25;
 
+    /// <summary>Maximum image requests sent to the vision model concurrently within one group.</summary>
+    public int MaxConcurrentImages { get; set; } = 3;
+
     /// <summary>Guards against accidentally sending every photo to the model; leave off until per-group testing looks right.</summary>
     public bool AllowBulkRuns { get; set; }
 }

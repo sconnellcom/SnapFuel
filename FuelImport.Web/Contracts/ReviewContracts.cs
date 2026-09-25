@@ -222,4 +222,7 @@ public class AutoDetectRequest
     public bool? RedetectExisting { get; set; }
 
     public int? Limit { get; set; }
+
+    /// <summary>Correlates this run with progress polling from the browser.</summary>
+    public string? ProgressId { get; set; }
 }

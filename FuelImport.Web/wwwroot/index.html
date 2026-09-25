@@ -570,6 +570,70 @@
       gap: 18px;
     }
 
+    .form-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .review-switch {
+      display: inline-flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 9px;
+      color: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .review-switch input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .review-switch-track {
+      position: relative;
+      width: 42px;
+      height: 24px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: #c9b9aa;
+      transition: background 150ms ease;
+    }
+
+    .review-switch-track::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fffdf8;
+      box-shadow: 0 1px 4px rgba(47, 36, 28, 0.28);
+      transition: transform 150ms ease;
+    }
+
+    .review-switch input:checked + .review-switch-track {
+      background: var(--success);
+    }
+
+    .review-switch input:checked + .review-switch-track::after {
+      transform: translateX(18px);
+    }
+
+    .review-switch input:focus-visible + .review-switch-track {
+      outline: 3px solid rgba(36, 85, 90, 0.3);
+      outline-offset: 2px;
+    }
+
+    .review-switch input:disabled + .review-switch-track {
+      opacity: 0.55;
+      cursor: progress;
+    }
+
     .section-card {
       border: 1px solid var(--border);
       background: rgba(255, 255, 255, 0.58);
@@ -855,8 +919,13 @@
 
         <div class="panel form-panel">
           <form id="entryForm">
-            <div>
+            <div class="form-header">
               <strong>Fuel-stop record</strong>
+              <label class="review-switch" for="reviewToggleInput">
+                <input id="reviewToggleInput" type="checkbox" role="switch" />
+                <span class="review-switch-track" aria-hidden="true"></span>
+                <span>Approved</span>
+              </label>
             </div>
 
             <div class="section-card">
@@ -925,7 +994,6 @@
             <div class="actions">
               <div id="groupMeta" class="group-meta"></div>
               <div id="saveStatus" class="save-status" role="status" aria-live="polite"></div>
-              <button id="reviewToggleButton" type="button" class="secondary">Approve group</button>
             </div>
           </form>
         </div>
@@ -933,7 +1001,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=10"></script>
+  <script src="/app.js?v=13"></script>
 </body>
 
 </html>

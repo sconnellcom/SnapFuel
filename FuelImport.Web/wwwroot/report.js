@@ -111,6 +111,7 @@ function renderReport(payload) {
     vehicleReportBodyEl.querySelectorAll('.vehicle-row').forEach((row) => {
         row.addEventListener('click', () => {
             state.selectedVehicleId = Number(row.dataset.vehicleId);
+            renderVehicleTrendOptions();
             renderReport(state.report);
             renderTrendCharts();
         });
