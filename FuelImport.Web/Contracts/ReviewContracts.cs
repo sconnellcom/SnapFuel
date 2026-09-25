@@ -81,6 +81,7 @@ public class EventLogResponse
     public bool NeedsReview { get; set; }
     public ReviewStatus ReviewStatus { get; set; }
     public List<string> AnomalyFlags { get; set; } = [];
+    public List<string> DataIssueFlags { get; set; } = [];
     public bool AnomalyAcknowledged { get; set; }
 }
 

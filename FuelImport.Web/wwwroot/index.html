@@ -616,20 +616,20 @@
       transition: transform 150ms ease;
     }
 
-    .review-switch input:checked + .review-switch-track {
+    .review-switch input:checked+.review-switch-track {
       background: var(--success);
     }
 
-    .review-switch input:checked + .review-switch-track::after {
+    .review-switch input:checked+.review-switch-track::after {
       transform: translateX(18px);
     }
 
-    .review-switch input:focus-visible + .review-switch-track {
+    .review-switch input:focus-visible+.review-switch-track {
       outline: 3px solid rgba(36, 85, 90, 0.3);
       outline-offset: 2px;
     }
 
-    .review-switch input:disabled + .review-switch-track {
+    .review-switch input:disabled+.review-switch-track {
       opacity: 0.55;
       cursor: progress;
     }

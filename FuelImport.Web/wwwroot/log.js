@@ -3,6 +3,8 @@ const logBodyEl = document.getElementById('logBody');
 const refreshButton = document.getElementById('refreshButton');
 const anomalyFilterEl = document.getElementById('anomalyFilter');
 const vehicleFilterEl = document.getElementById('vehicleFilter');
+const LOG_VEHICLE_FILTER_KEY = 'snapfuel_log_vehicle_filter';
+const LOG_EVENT_FILTER_KEY = 'snapfuel_log_event_filter';
 
 const state = {
     events: []
@@ -61,6 +63,8 @@ function filteredEvents() {
     if (anomalyFilterEl instanceof HTMLSelectElement) {
         if (anomalyFilterEl.value === 'onlyAnomalies') {
             list = list.filter((item) => (item.anomalyFlags?.length ?? 0) > 0 && !item.anomalyAcknowledged);
+        } else if (anomalyFilterEl.value === 'likelyDataIssues') {
+            list = list.filter((item) => (item.dataIssueFlags?.length ?? 0) > 0);
         } else if (anomalyFilterEl.value === 'onlyWithoutImages') {
             list = list.filter((item) => !item.hasImages);
         }
@@ -108,6 +112,39 @@ function renderVehicleFilterOptions() {
     }
 }
 
+function restoreSavedFilters() {
+    try {
+        if (vehicleFilterEl instanceof HTMLSelectElement) {
+            const savedVehicle = localStorage.getItem(LOG_VEHICLE_FILTER_KEY) ?? '';
+            if (Array.from(vehicleFilterEl.options).some((option) => option.value === savedVehicle)) {
+                vehicleFilterEl.value = savedVehicle;
+            }
+        }
+
+        if (anomalyFilterEl instanceof HTMLSelectElement) {
+            const savedEventFilter = localStorage.getItem(LOG_EVENT_FILTER_KEY) ?? 'all';
+            if (Array.from(anomalyFilterEl.options).some((option) => option.value === savedEventFilter)) {
+                anomalyFilterEl.value = savedEventFilter;
+            }
+        }
+    } catch {
+        // Browsing with storage disabled should not prevent the log from loading.
+    }
+}
+
+function saveFilters() {
+    try {
+        if (vehicleFilterEl instanceof HTMLSelectElement) {
+            localStorage.setItem(LOG_VEHICLE_FILTER_KEY, vehicleFilterEl.value);
+        }
+        if (anomalyFilterEl instanceof HTMLSelectElement) {
+            localStorage.setItem(LOG_EVENT_FILTER_KEY, anomalyFilterEl.value);
+        }
+    } catch {
+        // Ignore unavailable browser storage.
+    }
+}
+
 /// Applies vehicleId/onlyAnomalies query params (once) so report page callout links land pre-filtered.
 let urlFiltersApplied = false;
 function applyFiltersFromUrl() {
@@ -132,6 +169,14 @@ function formatReviewStatus(value) {
 }
 
 function renderLog() {
+    if (anomalyFilterEl instanceof HTMLSelectElement &&
+        anomalyFilterEl.value === 'likelyDataIssues' &&
+        state.events.length > 0 &&
+        !state.events.some((item) => Array.isArray(item.dataIssueFlags))) {
+        logBodyEl.innerHTML = '<tr><td colspan="10" class="empty">Likely data issues require the updated server. Restart SnapFuel, then refresh this page.</td></tr>';
+        return;
+    }
+
     const rows = filteredEvents();
     if (!rows.length) {
         logBodyEl.innerHTML = '<tr><td colspan="10" class="empty">No matching events.</td></tr>';
@@ -140,9 +185,14 @@ function renderLog() {
 
     logBodyEl.innerHTML = rows.map((item) => {
         const hasCallouts = (item.anomalyFlags ?? []).length > 0;
-        const callouts = hasCallouts
+        const hasDataIssues = (item.dataIssueFlags ?? []).length > 0;
+        const dataIssues = hasDataIssues
+            ? item.dataIssueFlags.map((flag) => `<span class="data-issue">${escapeHtml(flag)}</span>`).join('')
+            : '';
+        const anomalyCallouts = hasCallouts
             ? item.anomalyFlags.map((flag) => `<span class="warn">${escapeHtml(flag)}</span>`).join('') + (item.anomalyAcknowledged ? '<span class="pill pill-approved">Approved</span>' : '')
-            : 'None';
+            : '';
+        const callouts = dataIssues || anomalyCallouts ? `${dataIssues}${anomalyCallouts}` : 'None';
 
         return `
         <tr>
@@ -238,7 +288,9 @@ async function loadLog() {
 
         state.events = await response.json();
         renderVehicleFilterOptions();
+        restoreSavedFilters();
         applyFiltersFromUrl();
+        saveFilters();
         renderLog();
         renderStatus(`Loaded ${state.events.length} events.`);
     } catch (error) {
@@ -251,9 +303,15 @@ async function loadLog() {
 }
 
 refreshButton.addEventListener('click', loadLog);
-anomalyFilterEl.addEventListener('change', renderLog);
+anomalyFilterEl.addEventListener('change', () => {
+    saveFilters();
+    renderLog();
+});
 if (vehicleFilterEl instanceof HTMLSelectElement) {
-    vehicleFilterEl.addEventListener('change', renderLog);
+    vehicleFilterEl.addEventListener('change', () => {
+        saveFilters();
+        renderLog();
+    });
 }
 
 loadLog();

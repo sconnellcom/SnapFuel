@@ -230,6 +230,17 @@
             display: block;
         }
 
+        .data-issue {
+            color: #7a2f1f;
+            font-weight: 800;
+            background: #ffd9cc;
+            border: 1px solid rgba(122, 47, 31, 0.32);
+            border-radius: 10px;
+            padding: 5px 8px;
+            margin-bottom: 4px;
+            display: block;
+        }
+
         .empty {
             color: var(--muted);
             padding: 14px 0;
@@ -273,6 +284,7 @@
             </select>
             <select id="anomalyFilter">
                 <option value="all">All Events</option>
+                <option value="likelyDataIssues">Likely Data Issues</option>
                 <option value="onlyAnomalies">Only Callouts</option>
                 <option value="onlyWithoutImages">No Images</option>
             </select>
@@ -301,7 +313,7 @@
         </section>
     </div>
 
-    <script src="/log.js"></script>
+    <script src="/log.js?v=4"></script>
 </body>
 
 </html>

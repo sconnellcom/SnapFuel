@@ -859,7 +859,7 @@ app.MapPost("/api/manual/live-validation", async (FuelImportDbContext db, Review
     return Results.Ok(new ReviewLiveValidationResponse { Callouts = callouts });
 });
 
-app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
+app.MapGet("/api/events/log", async (FuelImportDbContext db, DetectionEstimator estimator) =>
 {
     var vehicleMap = await db.Vehicles
         .AsNoTracking()
@@ -887,6 +887,7 @@ app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
             var metrics = eventMetrics.TryGetValue(fuelEvent.FuelEventId, out var candidate)
                 ? candidate
                 : EmptyEventMetric();
+            var dataIssueFlags = BuildDataIssueFlags(fuelEvent, vehicle, events, estimator);
 
             return new EventLogResponse
             {
@@ -908,6 +909,7 @@ app.MapGet("/api/events/log", async (FuelImportDbContext db) =>
                 NeedsReview = fuelEvent.NeedsReview,
                 ReviewStatus = fuelEvent.ReviewStatus,
                 AnomalyFlags = metrics.AnomalyFlags,
+                DataIssueFlags = dataIssueFlags,
                 AnomalyAcknowledged = fuelEvent.AnomalyAcknowledged
             };
         })
@@ -1251,6 +1253,71 @@ static Dictionary<int, (decimal? MilesSincePrevious, decimal? CalculatedMpg, Lis
 static (decimal? MilesSincePrevious, decimal? CalculatedMpg, List<string> AnomalyFlags) EmptyEventMetric()
 {
     return (null, null, new List<string>());
+}
+
+static List<string> BuildDataIssueFlags(
+    FuelEvent fuelEvent,
+    Vehicle? vehicle,
+    IReadOnlyList<FuelEvent> allEvents,
+    DetectionEstimator estimator)
+{
+    var eventTime = fuelEvent.EventTimeUtc ?? fuelEvent.EventTimeLocal ?? fuelEvent.CreatedAtUtc;
+    var vehicleHistory = fuelEvent.VehicleId is int vehicleId
+        ? allEvents
+            .Where(candidate => candidate.FuelEventId != fuelEvent.FuelEventId && candidate.VehicleId == vehicleId)
+            .ToList()
+        : [];
+    var estimates = estimator.Create(vehicle, eventTime, vehicleHistory);
+    var flags = new List<string>();
+
+    if (fuelEvent.Gallons is decimal gallons)
+    {
+        if (gallons <= 0m)
+        {
+            flags.Add($"Gallons {gallons:0.###} must be greater than zero.");
+        }
+        else if (gallons > estimates.GallonsMaximum)
+        {
+            flags.Add($"Gallons {gallons:0.###} exceeds the expected maximum {estimates.GallonsMaximum:0.##}.");
+        }
+    }
+
+    if (fuelEvent.TotalPrice is decimal totalPrice)
+    {
+        if (totalPrice <= 0m)
+        {
+            flags.Add($"Total price {totalPrice:C} must be greater than zero.");
+        }
+        else if (totalPrice > estimates.CostMaximum)
+        {
+            flags.Add($"Total price {totalPrice:C} exceeds the expected maximum {estimates.CostMaximum:C}.");
+        }
+    }
+
+    var pricePerGallon = fuelEvent.PricePerGallon
+        ?? (fuelEvent.Gallons is decimal eventGallons && eventGallons > 0m && fuelEvent.TotalPrice is decimal eventPrice
+            ? eventPrice / eventGallons
+            : null);
+    if (pricePerGallon is decimal unitPrice &&
+        (unitPrice < estimates.MinPricePerGallon || unitPrice > estimates.MaxPricePerGallon))
+    {
+        flags.Add($"Price per gallon {unitPrice:C} is outside the expected {estimates.MinPricePerGallon:C}-{estimates.MaxPricePerGallon:C} range.");
+    }
+
+    if (fuelEvent.Odometer is int odometer)
+    {
+        if (odometer < 0)
+        {
+            flags.Add($"Odometer {odometer:N0} cannot be negative.");
+        }
+        else if (vehicleHistory.Any(candidate => candidate.Odometer.HasValue) &&
+            (odometer < estimates.OdometerMinimum || odometer > estimates.OdometerMaximum))
+        {
+            flags.Add($"Odometer {odometer:N0} is outside the expected {estimates.OdometerMinimum:N0}-{estimates.OdometerMaximum:N0} range.");
+        }
+    }
+
+    return flags;
 }
 
 static bool AreThresholdsValid(decimal? maxGallonsPerFillUp, decimal? maxMpg, out string? error)
